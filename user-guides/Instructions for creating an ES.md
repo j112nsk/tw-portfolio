@@ -49,5 +49,3 @@
 
 1. [Подтвердить первичные документы](https://help.sbis.ru/help/edo/chet_fac/buy/)
 2. [Задать логин и пароль пользователю](https://help.sbis.ru/help/start/reg_sys/change_pass/)
-
-$${\color{red}Это красный текст}$$
