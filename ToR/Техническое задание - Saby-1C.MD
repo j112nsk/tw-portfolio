@@ -224,7 +224,7 @@ Robot должен вести:
 
 # BPMN-схема процесса интеграции Saby → 1С для сервиса Robot
 
-**Участники процесса (Pools / Lanes):**
+**Участники процесса:**
 - Robot (интеграционный сервис)
 - 1С:Бухгалтерия 3.0
 - Бухгалтер
@@ -234,3 +234,7 @@ Robot должен вести:
 ![alt text](Saby_to_1C_Robot_BPMN.png)
 
 ![alt text](Saby_to_1C_Robot_BPMN_1.png)
+
+# Диаграмма последовательности
+
+![alt text](Saby_to_1C_Robot_uml-1.png)
