@@ -12,17 +12,15 @@
 
 | Артефакт | Описание | Ссылка |
 |----------|----------|--------|
-| Vision & Scope | Границы системы и цели | [docs/01_vision_and_scope.md](docs/01_vision_and_scope.md) |
-| Use Case Diagram | Диаграмма актёров и прецедентов | [images/use_case_diagram.png](images/use_case_diagram.png) |
-| User Stories | 4 пользовательских истории с критериями приёмки | [docs/03_user_stories.md](docs/03_user_stories.md) |
-| Нефункциональные требования | Производительность, безопасность, удобство | [docs/04_nonfunctional_reqs.md](docs/04_nonfunctional_reqs.md) |
-| Модель данных (SQL) | DDL для PostgreSQL + ER-диаграмма | [docs/05_data_model.sql](docs/05_data_model.sql) и [images/er_diagram.png](images/er_diagram.png) |
-| Wireframes | Макеты главной, карточки документа, редактирования | [images/wireframe_main.png](images/wireframe_main.png) и др. |
-| Тест-кейсы | Acceptance test для создания версии | [docs/07_test_cases.md](docs/07_test_cases.md) |
+| Vision & Scope | Границы системы и цели | [01_vision_and_scope.md](docs/01_vision_and_scope.md) |
+| Use Case Diagram | Диаграмма актёров и прецедентов | [use_case_diagram.png](images/use_case_diagram.png) |
+| User Stories | 4 пользовательских истории с критериями приёмки | [03_user_stories.md](docs/03_user_stories.md) |
+| Нефункциональные требования | Производительность, безопасность, удобство | [04_nonfunctional_reqs.md](docs/04_nonfunctional_reqs.md) |
+| Модель данных (SQL) | DDL для PostgreSQL + ER-диаграмма | [05_data_model.sql](docs/05_data_model.sql) и [er_diagram.png](images/er_diagram.png) |
+| Wireframes | Макеты главной, карточки документа, редактирования | [wireframe1](wireframe1.png), [wireframe2](wireframe2.png), [wireframe3](wireframe3.png)
+| Тест-кейсы | Acceptance test для создания версии | [07_test_cases.md](docs/07_test_cases.md) |
 
 ## Инструменты
 - Draw.io (диаграммы, wireframes)
 - Markdown + GitHub
 - PostgreSQL (только схема, без развёртывания)
-
-Проект закончен, система спроектирована, но не реализована кодом – это чисто аналитическая работа.
