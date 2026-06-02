@@ -17,7 +17,7 @@
 | User Stories | 4 пользовательских истории с критериями приёмки | [03_user_stories.md](docs/03_user_stories.md) |
 | Нефункциональные требования | Производительность, безопасность, удобство | [04_nonfunctional_reqs.md](docs/04_nonfunctional_reqs.md) |
 | Модель данных (SQL) | DDL для PostgreSQL + ER-диаграмма | [05_data_model.sql](docs/05_data_model.sql) и [er_diagram.png](images/er_diagram.png) |
-| Wireframes | Макеты главной, карточки документа, редактирования | [wireframe1](wireframe1.png), [wireframe2](wireframe2.png), [wireframe3](wireframe3.png)
+| Wireframes | Макеты главной, карточки документа, редактирования | [wireframe1](images/wireframe1.png), [wireframe2](images/wireframe2.png), [wireframe3](images/wireframe3.png)
 | Тест-кейсы | Acceptance test для создания версии | [07_test_cases.md](docs/07_test_cases.md) |
 
 ## Инструменты
