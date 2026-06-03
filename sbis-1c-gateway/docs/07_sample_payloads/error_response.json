@@ -1,0 +1,8 @@
+{
+  "error": "validation_error",
+  "message": "Отсутствует обязательное поле 'receiverInn'",
+  "details": {
+    "missing_fields": ["receiverInn"],
+    "received_fields": ["documentType", "receiverName", "date", "number", "items", "total"]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "documentType": "UPD",
+  "receiverInn": "7701234567",
+  "receiverName": "ООО Ромашка",
+  "date": "2025-03-15",
+  "number": "УПД-42",
+  "items": [
+    {
+      "product": "Ноутбук Lenovo ThinkPad",
+      "quantity": 5,
+      "price": 52000.00,
+      "taxRate": 20
+    },
+    {
+      "product": "Мышь беспроводная Logitech",
+      "quantity": 5,
+      "price": 1500.00,
+      "taxRate": 20
+    }
+  ],
+  "total": 267500.00,
+  "signature": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu1SU1LfVLPHCYZM6tC... (base64-encoded CMS подпись)"
+}

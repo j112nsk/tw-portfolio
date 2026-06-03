@@ -1,0 +1,444 @@
+openapi: 3.0.0
+info:
+  title: SBIS-1C Integration Gateway API
+  description: |
+    Шлюз для асинхронного обмена документами между 1С и системой ЭДО СБИС.
+    Поддерживает отправку исходящих документов (УПД, счета, акты), получение статусов,
+    приём входящих документов через webhook и подписание.
+  version: 1.0.0
+  
+tags:
+  - name: Outgoing
+    description: Отправка и отслеживание исходящих документов
+  - name: Incoming
+    description: Получение входящих документов
+  - name: Webhooks
+    description: Callback-уведомления от СБИС
+  - name: Signing
+    description: Подписание документов
+
+security:
+  - BearerAuth: []
+
+paths:
+  /documents/outgoing:
+    post:
+      tags:
+        - Outgoing
+      summary: Отправить исходящий документ из 1С
+      description: |
+        Принимает документ в формате JSON, валидирует, ставит в очередь на отправку в СБИС.
+        Возвращает requestId для последующего отслеживания статуса.
+      operationId: sendOutgoingDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutgoingDocumentRequest'
+            examples:
+              upd:
+                summary: Пример УПД
+                value:
+                  documentType: "UPD"
+                  receiverInn: "7701234567"
+                  receiverName: "ООО Ромашка"
+                  date: "2025-03-15"
+                  number: "УПД-42"
+                  items:
+                    - product: "Ноутбук"
+                      quantity: 5
+                      price: 50000
+                      taxRate: 20
+                  total: 300000
+                  signature: "base64_encoded_cms_signature"
+              invoice:
+                summary: Пример счёт-фактуры
+                value:
+                  documentType: "Invoice"
+                  receiverInn: "7712345678"
+                  receiverName: "ООО Лютик"
+                  date: "2025-03-16"
+                  number: "СФ-101"
+                  items:
+                    - product: "Принтер"
+                      quantity: 2
+                      price: 25000
+                      taxRate: 20
+                  total: 60000
+      responses:
+        '202':
+          description: Документ принят в обработку
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedResponse'
+        '400':
+          description: Ошибка валидации (неверный JSON, отсутствие обязательных полей)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Не авторизован (отсутствует или неверный токен)
+        '429':
+          description: Слишком много запросов (rate limiting)
+
+  /documents/status/{requestId}:
+    get:
+      tags:
+        - Outgoing
+      summary: Получить статус исходящего документа
+      description: Возвращает текущий статус обработки документа по requestId
+      operationId: getDocumentStatus
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "req_12345"
+          description: Идентификатор, полученный при отправке
+      responses:
+        '200':
+          description: Успешный ответ со статусом
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '404':
+          description: Документ с таким requestId не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /documents/incoming:
+    get:
+      tags:
+        - Incoming
+      summary: Получить список входящих документов для 1С
+      description: |
+        Возвращает список входящих документов, полученных от СБИС.
+        1С может опрашивать этот эндпоинт периодически (pull-модель).
+      operationId: getIncomingDocuments
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [new, processed]
+            default: new
+          description: Фильтр по статусу (new – ещё не забраны 1С, processed – уже получены)
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Максимальное количество документов в ответе
+      responses:
+        '200':
+          description: Список документов
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IncomingDocumentSummary'
+                  total:
+                    type: integer
+                    example: 5
+        '401':
+          description: Не авторизован
+
+  /documents/incoming/{docId}:
+    get:
+      tags:
+        - Incoming
+      summary: Получить полное содержимое входящего документа
+      description: |
+        Возвращает полный JSON-представление входящего документа.
+        После успешного получения шлюз меняет статус документа на `processed`.
+      operationId: getIncomingDocumentById
+      parameters:
+        - name: docId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Внутренний идентификатор документа в шлюзе
+      responses:
+        '200':
+          description: Полный документ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncomingDocumentFull'
+        '404':
+          description: Документ не найден
+        '410':
+          description: Документ уже был получен (статус processed)
+
+  /documents/{docId}/sign:
+    post:
+      tags:
+        - Signing
+      summary: Подписать документ (исходящий или входящий)
+      description: |
+        1С отправляет подпись (КЭП) для документа. Шлюз передаёт подпись в СБИС.
+        Используется для подписания входящих счетов или подтверждения исходящих.
+      operationId: signDocument
+      parameters:
+        - name: docId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Идентификатор документа (внутренний или внешний)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignatureRequest'
+      responses:
+        '200':
+          description: Подпись успешно передана в СБИС
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "signed"
+                  signedAt:
+                    type: string
+                    format: date-time
+        '400':
+          description: Неверный формат подписи или документ уже подписан
+        '404':
+          description: Документ не найден
+
+  # Webhook от СБИС (не требует авторизации, но проверяет подлинность)
+  /webhooks/sbis/incoming:
+    post:
+      tags:
+        - Webhooks
+      summary: Webhook от СБИС о новом входящем документе
+      description: |
+        СБИС вызывает этот эндпоинт при поступлении нового документа.
+        Шлюз принимает XML, парсит, сохраняет в БД и публикует уведомление в очередь.
+      operationId: sbisWebhook
+      security: []   # может быть защищено через подпись запроса, не Bearer
+      requestBody:
+        required: true
+        content:
+          application/xml:
+            schema:
+              type: string
+            example: |
+              <?xml version="1.0" encoding="UTF-8"?>
+              <Документ>
+                <Идентификатор>sbis_doc_9876</Идентификатор>
+                <Тип>Счет</Тип>
+                <Отправитель>ООО Контрагент</Отправитель>
+                <Содержание>...</Содержание>
+              </Документ>
+      responses:
+        '200':
+          description: Webhook успешно обработан
+        '400':
+          description: Невалидный XML или ошибка парсинга
+        '500':
+          description: Внутренняя ошибка шлюза
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Токен доступа, выдаваемый 1С при старте сессии (статический или JWT)
+
+  schemas:
+    OutgoingDocumentRequest:
+      type: object
+      required:
+        - documentType
+        - receiverInn
+        - receiverName
+        - date
+        - number
+        - items
+        - total
+      properties:
+        documentType:
+          type: string
+          enum: [UPD, Invoice, Act, TORG12]
+          description: Тип документа
+        receiverInn:
+          type: string
+          pattern: '^\d{10}$|^\d{12}$'
+          description: ИНН получателя (10 или 12 цифр)
+        receiverName:
+          type: string
+          maxLength: 200
+          description: Наименование получателя
+        date:
+          type: string
+          format: date
+          description: Дата документа
+        number:
+          type: string
+          description: Номер документа
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/InvoiceItem'
+        total:
+          type: number
+          description: Общая сумма документа
+        signature:
+          type: string
+          description: Base64-encoded CMS подпись документа (опционально, если подписано в 1С)
+      example:
+        documentType: "UPD"
+        receiverInn: "7701234567"
+        receiverName: "ООО Ромашка"
+        date: "2025-03-15"
+        number: "УПД-42"
+        items:
+          - product: "Ноутбук"
+            quantity: 5
+            price: 50000
+            taxRate: 20
+        total: 300000
+
+    InvoiceItem:
+      type: object
+      required:
+        - product
+        - quantity
+        - price
+        - taxRate
+      properties:
+        product:
+          type: string
+          description: Наименование товара/услуги
+        quantity:
+          type: number
+          minimum: 0.001
+        price:
+          type: number
+          minimum: 0
+        taxRate:
+          type: number
+          enum: [0, 10, 20, null]
+          description: Ставка НДС в процентах (null – без НДС)
+
+    AcceptedResponse:
+      type: object
+      properties:
+        requestId:
+          type: string
+          description: Уникальный идентификатор запроса
+          example: "req_12345"
+        status:
+          type: string
+          enum: [accepted]
+        message:
+          type: string
+          example: "Документ принят в обработку"
+
+    StatusResponse:
+      type: object
+      properties:
+        requestId:
+          type: string
+        docId:
+          type: string
+          description: Идентификатор документа в СБИС (если известен)
+        status:
+          type: string
+          enum: [pending, queued, sent, delivered, signed, rejected, failed]
+          description: |
+            pending – только что создан, ещё не в очереди
+            queued – в очереди на отправку
+            sent – отправлен в СБИС
+            delivered – доставлен контрагенту
+            signed – подписан получателем
+            rejected – отклонён
+            failed – ошибка отправки
+        errorMessage:
+          type: string
+          description: Текст ошибки, если статус failed или rejected
+        lastUpdated:
+          type: string
+          format: date-time
+
+    IncomingDocumentSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Внутренний идентификатор документа в шлюзе
+        externalId:
+          type: string
+          description: Идентификатор документа в СБИС
+        documentType:
+          type: string
+        senderName:
+          type: string
+        date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [new, processed]
+
+    IncomingDocumentFull:
+      allOf:
+        - $ref: '#/components/schemas/IncomingDocumentSummary'
+        - type: object
+          properties:
+            content:
+              type: object
+              description: Нормализованное содержимое документа в JSON
+            rawXml:
+              type: string
+              description: Исходный XML от СБИС (для отладки)
+            receivedAt:
+              type: string
+              format: date-time
+
+    SignatureRequest:
+      type: object
+      required:
+        - signature
+      properties:
+        signature:
+          type: string
+          description: Base64-encoded CMS (PKCS#7) подпись
+        signerCertificate:
+          type: string
+          description: Серийный номер сертификата (опционально, для верификации)
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          enum: [bad_request, unauthorized, not_found, validation_error, internal_error]
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
