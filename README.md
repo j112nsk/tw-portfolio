@@ -9,7 +9,7 @@
 
 [**Проект "Интеграционный шлюз СБИС ↔ 1С"**](sbis-1c-gateway)
 
-[**Проект "Модуль «Управление и планирование задач»"**](Task-management-planning\Task-management-planning.md)
+[**Проект "Модуль «Управление и планирование задач»"**](Task-management-planning/Task-management-planning.md)
 
 [**Реализованные проекты**](projects)
 
