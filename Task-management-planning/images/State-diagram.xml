@@ -1,0 +1,68 @@
+<mxfile host="app.diagrams.net" agent="5.0">
+  <diagram name="Состояния задачи" id="state-diagram">
+    <mxGraphModel dx="1379" dy="786" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="start" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#000000;" value="" vertex="1">
+          <mxGeometry height="20" width="20" x="40" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="new" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Новая" vertex="1">
+          <mxGeometry height="60" width="120" x="130" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="inwork" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="В работе" vertex="1">
+          <mxGeometry height="60" width="120" x="330" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="pending" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" value="Ожидает принятия" vertex="1">
+          <mxGeometry height="60" width="140" x="430" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="done" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Выполнена" vertex="1">
+          <mxGeometry height="60" width="120" x="560" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="cancelled" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Отменена" vertex="1">
+          <mxGeometry height="60" width="120" x="130" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="t1" edge="1" parent="1" source="start" style="endArrow=classic;html=1;rounded=0;" target="new" value="создание">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" edge="1" parent="1" source="new" style="endArrow=classic;html=1;rounded=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" target="inwork" value="взять в&amp;nbsp;&lt;div&gt;работу&lt;/div&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="t3" edge="1" parent="1" source="inwork" style="endArrow=classic;html=1;rounded=0;" target="done" value="отметить&amp;nbsp;&lt;div&gt;выполненной&lt;/div&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="t4" edge="1" parent="1" source="new" style="endArrow=classic;html=1;rounded=0;" target="pending" value="делегировать">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="t5" edge="1" parent="1" source="inwork" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;" target="pending" value="делегировать">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="t6" edge="1" parent="1" source="pending" style="endArrow=classic;html=1;rounded=0;" target="new" value="принять → новая задача">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="t7" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;edgeStyle=orthogonalEdgeStyle;" value="отклонить /&amp;nbsp;&lt;div&gt;таймаут&lt;/div&gt;">
+          <mxGeometry relative="1" x="-0.3333" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="530" y="310" />
+              <mxPoint x="440" y="310" />
+            </Array>
+            <mxPoint x="530" y="180" as="sourcePoint" />
+            <mxPoint x="440.03" y="360" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="t8" edge="1" parent="1" source="new" style="endArrow=classic;html=1;rounded=0;dashed=1;" target="cancelled" value="отмена">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="t9" edge="1" parent="1" source="inwork" style="endArrow=classic;html=1;rounded=0;dashed=1;" target="cancelled" value="отмена">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="240" y="240" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="t10" edge="1" parent="1" source="pending" style="endArrow=classic;html=1;rounded=0;dashed=1;" target="cancelled" value="отмена">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
