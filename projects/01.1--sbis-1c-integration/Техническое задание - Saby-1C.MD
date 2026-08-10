@@ -232,9 +232,9 @@ Robot должен вести:
 > Интеграция выполняется между: Saby (СБИС) → Robot → 1С:Бухгалтерия 3.0
 
 ![alt text](Saby_to_1C_Robot_BPMN.png)
-
+---
 ![alt text](Saby_to_1C_Robot_BPMN_1.png)
 
 # Диаграмма последовательности
 
-![alt text](Saby_to_1C_Robot_uml-1.png)
+![alt text](Saby_to_1C_Robot_uml.png)

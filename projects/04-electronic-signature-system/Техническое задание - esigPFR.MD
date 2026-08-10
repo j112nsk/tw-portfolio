@@ -335,4 +335,4 @@
 6. Программа записывает лог
 
 ### 11.4. UML Sequence Diagram (PlantUML)
-![alt text](esigPFR_UML-1.png)
+![alt text](esigPFR_UML.png)
