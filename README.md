@@ -11,6 +11,7 @@
 | [**3. Система управления внутренними регламентами**](projects/03-knowledge-base-system)                                                                 | Тестовое задание      |
 | [**4. Модуль «Управление и планирование задач»**](projects/04-Task-management-planning/Task-management-planning.md)                                     | Тестовое задание      |
 | [**5. Программа подписания XML-отчетов ПФР с использованием КЭП (ТЗ)**](projects/05-electronic-signature-system/Техническое%20задание%20-%20esigPFR.MD) | Реальный рабочий кейс |
+| [**6. Job Search CRM**](projects/06-job-search-crm) | Pet-проект (в разработке) |
 | [**Другие рабочие кейсы**](projects/additional)                                                                                                      |  |
 
 | **Technical Writing:**                                               |
