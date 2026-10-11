@@ -5,6 +5,7 @@
 --   INV-08  причина отказа допустима только у записей об отказе
 --   INV-10  текущий статус процесса = статус последней записи истории
 --   INV-18  нельзя удалить единственную запись истории процесса
+--   INV-19  инициатор процесса не меняется после создания
 -- =====================================================================
 
 
@@ -36,6 +37,29 @@ create trigger job_processes_check_channels
     before insert or update of apply_channel_id on job_processes
     for each row
     execute function fn_job_processes_check_channels();
+
+
+-- ---------------------------------------------------------------------
+-- INV-19: инициатор процесса нельзя менять после создания (UQ1)
+-- ---------------------------------------------------------------------
+
+create or replace function fn_job_processes_protect_initiator()
+returns trigger
+language plpgsql
+as $$
+begin
+    if new.initiator is distinct from old.initiator then
+        raise exception 'Инициатора процесса нельзя менять после создания (процесс id=%)', old.id
+            using errcode = 'restrict_violation';
+    end if;
+    return new;
+end;
+$$;
+
+create trigger job_processes_protect_initiator
+    before update of initiator on job_processes
+    for each row
+    execute function fn_job_processes_protect_initiator();
 
 
 -- ---------------------------------------------------------------------

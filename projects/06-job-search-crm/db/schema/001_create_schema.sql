@@ -1,7 +1,7 @@
 -- =====================================================================
 -- 001_create_schema.sql
 -- Job Search CRM: справочники, рабочие таблицы, индексы.
--- Модель: docs/data-model/01-logical-model.md и 02-physical-model.md
+-- Модель: docs/data-model/01-logical-model.md (v2.1) и 02-physical-model.md (v2.0)
 -- Целевая СУБД: PostgreSQL 14 или новее. Кодировка базы: UTF8.
 -- =====================================================================
 
@@ -79,15 +79,23 @@ create table statuses (
     kind               text     not null,
     stage_order        smallint,
     is_required_stage  boolean,
+    in_funnel          boolean,
     constraint statuses_code_uk  unique (code),
     constraint statuses_code_chk check (code ~ '^[A-Z][A-Z0-9_]*$'),
     constraint statuses_name_chk check (btrim(name_ru) <> ''),
     constraint statuses_kind_chk check (kind in ('stage', 'outcome')),
     constraint statuses_stage_order_uk unique (stage_order),
     constraint statuses_stage_order_chk check (stage_order is null or stage_order > 0),
+    -- этап: все три признака заданы; итог: все три пусты
     constraint statuses_stage_chk check (
-        (kind = 'stage'   and stage_order is not null and is_required_stage is not null)
-     or (kind = 'outcome' and stage_order is null     and is_required_stage is null)
+        (kind = 'stage'
+            and stage_order is not null
+            and is_required_stage is not null
+            and in_funnel is not null)
+     or (kind = 'outcome'
+            and stage_order is null
+            and is_required_stage is null
+            and in_funnel is null)
     )
 );
 
@@ -107,7 +115,8 @@ create unique index skills_name_ci_uk on skills (lower(name));
 
 
 -- ---------------------------------------------------------------------
--- Процесс: отклик соискателя или входящий контакт работодателя
+-- Процесс: квалифицированный отклик соискателя или входящий контакт
+-- Дата начала процесса не хранится: это первая дата этапа в истории (D21).
 -- ---------------------------------------------------------------------
 
 create table job_processes (
@@ -117,16 +126,13 @@ create table job_processes (
     company_name              text     not null,
     vacancy_title             text     not null,
     vacancy_url               text,
-    started_on                date     not null,
     vacancy_source_id         smallint references vacancy_sources (id),
     apply_channel_id          smallint references channels (id),
-    has_cover_letter          boolean,
+    communication_channel_id  smallint not null references channels (id),
     employer_type_id          smallint references employer_types (id),
     employment_format_id      smallint references employment_formats (id),
     salary_from               integer,
     salary_to                 integer,
-    first_response_on         date,
-    communication_channel_id  smallint references channels (id),
     contact_name              text,
     contact_position          text,
     note                      text,
@@ -135,35 +141,24 @@ create table job_processes (
     constraint job_processes_initiator_chk check (initiator in ('applicant', 'employer')),
     constraint job_processes_company_chk   check (btrim(company_name) <> ''),
     constraint job_processes_title_chk     check (btrim(vacancy_title) <> ''),
+    -- D31: ссылка необязательна; если указана, это http(s)-адрес без пробелов (INV-07)
     constraint job_processes_url_chk       check (
         vacancy_url is null or vacancy_url ~ '^https?://[^[:space:]]+$'
     ),
-    -- INV-02: поля, обязательные для отклика соискателя
-    constraint job_processes_applicant_chk check (
-        initiator <> 'applicant'
-        or (vacancy_url is not null
+    -- INV-02: источник вакансии и канал отклика заполнены только у процессов, начатых откликом
+    constraint job_processes_origin_chk check (
+        (initiator = 'applicant'
             and vacancy_source_id is not null
-            and apply_channel_id is not null
-            and has_cover_letter is not null)
-    ),
-    -- INV-02, INV-03: поля входящего процесса
-    constraint job_processes_employer_chk check (
-        initiator <> 'employer'
-        or (vacancy_source_id is null
-            and apply_channel_id is null
-            and has_cover_letter is null
-            and communication_channel_id is not null
-            and first_response_on is null)
+            and apply_channel_id is not null)
+     or (initiator = 'employer'
+            and vacancy_source_id is null
+            and apply_channel_id is null)
     ),
     -- INV-05: вилка «на руки», рубли
     constraint job_processes_salary_from_chk  check (salary_from is null or salary_from > 0),
     constraint job_processes_salary_to_chk    check (salary_to is null or salary_to > 0),
     constraint job_processes_salary_range_chk check (
         salary_from is null or salary_to is null or salary_from <= salary_to
-    ),
-    -- INV-06 (часть, проверяемая базой): ответ не раньше начала процесса
-    constraint job_processes_first_response_chk check (
-        first_response_on is null or first_response_on >= started_on
     )
 );
 
@@ -178,10 +173,8 @@ create table process_status_history (
     status_id            smallint    not null references statuses (id),
     stage_date           date        not null,
     recorded_at          timestamptz not null default now(),
-    changed_by           text        not null,
     note                 text,
-    rejection_reason_id  smallint references rejection_reasons (id),
-    constraint process_status_history_changed_by_chk check (changed_by in ('applicant', 'system'))
+    rejection_reason_id  smallint references rejection_reasons (id)
 );
 
 
@@ -223,36 +216,23 @@ create table profile_skills (
 -- Индексы (объёмы малы, набор минимален; обоснование в 02-physical-model.md)
 -- ---------------------------------------------------------------------
 
--- Список процессов, сортировка по дате начала (US-04)
-create index ix_job_processes_started_on
-    on job_processes (started_on desc, id desc);
-
--- Фильтры по направлению и статусу (US-04, аналитика)
+-- Фильтры по направлению и статусу (US-02, аналитика)
 create index ix_job_processes_direction_status
     on job_processes (direction_id, status_id);
 
--- Поиск возможных дублей (US-02, D18)
-create index ix_job_processes_company_title
-    on job_processes (lower(btrim(company_name)), lower(btrim(vacancy_title)));
-
-create index ix_job_processes_vacancy_url
-    on job_processes (vacancy_url)
-    where vacancy_url is not null;
-
--- Кандидаты на автозакрытие (US-11, D10)
-create index ix_job_processes_autoclose
-    on job_processes (started_on)
-    where initiator = 'applicant' and first_response_on is null;
-
--- Последняя запись истории процесса (INV-10), история процесса (US-07)
+-- Последняя запись и история процесса (INV-10, US-04)
 create index ix_status_history_process_recorded
     on process_status_history (process_id, recorded_at, id);
 
--- Воронка: какие процессы достигли статуса (US-16)
+-- Воронка: какие процессы достигли статуса (US-12)
 create index ix_status_history_status_process
     on process_status_history (status_id, process_id);
 
--- Тестовые задания процесса и ближайшие сроки сдачи (US-10, US-13)
+-- Напоминания и фильтры по датам этапов (US-08, US-09)
+create index ix_status_history_stage_date
+    on process_status_history (stage_date);
+
+-- Тестовые задания процесса и ближайшие сроки сдачи (US-07, US-08)
 create index ix_test_assignments_process
     on test_assignments (process_id);
 
@@ -260,7 +240,7 @@ create index ix_test_assignments_due_open
     on test_assignments (due_on)
     where submitted_on is null and due_on is not null;
 
--- Обратный поиск по навыку (рейтинг навыков, US-21)
+-- Обратный поиск по навыку (рейтинг навыков, US-17)
 create index ix_process_skills_skill
     on process_skills (skill_id);
 
@@ -269,26 +249,25 @@ create index ix_profile_skills_skill
 
 
 -- ---------------------------------------------------------------------
--- Комментарии к таблицам (словарь данных внутри базы)
+-- Комментарии (словарь данных внутри базы)
 -- ---------------------------------------------------------------------
 
 comment on table directions             is 'Справочник: направления поиска (SA/BA, TW)';
-comment on table vacancy_sources        is 'Справочник: источники вакансий (где найдена вакансия)';
+comment on table vacancy_sources        is 'Справочник: источники вакансий (где найдена вакансия; только для процессов, начатых откликом)';
 comment on table channels               is 'Справочник: каналы отклика и общения; is_apply_channel = можно ли откликнуться этим каналом';
 comment on table employer_types         is 'Справочник: типы работодателя';
 comment on table employment_formats     is 'Справочник: форматы трудоустройства';
 comment on table rejection_reasons      is 'Справочник: причины отказов';
-comment on table statuses               is 'Справочник: статусы процесса (этапы воронки и итоги); kind, stage_order, is_required_stage нужны для расчёта воронки (SR11)';
+comment on table statuses               is 'Справочник: статусы процесса (этапы воронки и итоги); kind, stage_order, is_required_stage, in_funnel нужны для расчёта воронки (SR11) и напоминаний (SR13)';
 comment on table skills                 is 'Справочник навыков; название уникально без учёта регистра';
-comment on table job_processes          is 'Процесс: отклик соискателя (initiator = applicant) или входящий контакт работодателя (initiator = employer)';
+comment on table job_processes          is 'Квалифицированный процесс: начат откликом соискателя (initiator = applicant) или работодателем (initiator = employer); отклики без этапа не хранятся (D23)';
 comment on table process_status_history is 'История статусов процесса; каждая запись = один установленный статус с датой этапа';
 comment on table test_assignments       is 'Тестовые задания по процессу';
 comment on table process_skills         is 'Навыки вакансии (вводятся начиная с HR-интервью, D8)';
 comment on table profile_skills         is 'Профиль навыков соискателя по направлениям (D3)';
 
-comment on column job_processes.started_on        is 'Дата отклика (applicant) или дата первого контакта (employer)';
-comment on column job_processes.salary_from       is 'Вилка «на руки», руб.; пересчёт в «на руки» выполняет соискатель (D15)';
-comment on column job_processes.first_response_on is 'Дата первого содержательного ответа работодателя (D13)';
-comment on column job_processes.status_id         is 'Текущий статус; поддерживается триггером по последней записи истории (INV-10)';
+comment on column job_processes.salary_from  is 'Вилка «на руки», руб.; пересчёт в «на руки» выполняет соискатель (D15)';
+comment on column job_processes.status_id    is 'Текущий статус; поддерживается триггером по последней записи истории (INV-10)';
 comment on column process_status_history.stage_date  is 'Дата этапа (прошедшего или запланированного) либо дата закрытия';
 comment on column process_status_history.recorded_at is 'Момент создания записи; порядок записей: recorded_at, затем id';
+comment on column statuses.in_funnel is 'Участвует ли этап в воронке аналитики; «Отклик» не участвует (D25)';
