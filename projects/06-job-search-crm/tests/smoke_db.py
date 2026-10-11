@@ -300,9 +300,9 @@ def check_triggers(conn) -> None:
 
 def check_skills(conn) -> None:
     section("6. Навыки")
-    conn.execute("insert into skills (name) values ('SQL')")
-    expect_error(conn, "Навык «sql» не добавляется, если есть «SQL» (INV-14)", UNIQUE_VIOLATION,
-                 "insert into skills (name) values ('sql')")
+    conn.execute("insert into skills (name) values ('Смоук-навык')")
+    expect_error(conn, "Навык «смоук-навык» не добавляется, если есть «Смоук-навык» (INV-14)", UNIQUE_VIOLATION,
+                 "insert into skills (name) values ('смоук-навык')")
     expect_error(conn, "Навык с пробелами по краям не добавляется", CHECK_VIOLATION,
                  "insert into skills (name) values (' BPMN')")
 
