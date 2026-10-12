@@ -11,6 +11,7 @@
 Даты считаются относительно дня запуска, поэтому напоминания всегда «живые».
 Повторный запуск приводит демонстрационную базу к тому же состоянию без дублей.
 """
+import argparse
 import random
 import sys
 from dataclasses import dataclass, field
@@ -21,6 +22,8 @@ from db.connection import get_connection
 DEMO_DATABASE = "job_search_crm_demo"
 SEED = 20261011          # фиксированное начальное значение: набор данных воспроизводим
 REGULAR_COUNT = 82       # обычные процессы; к ним добавляются «закреплённые» (см. pinned_specs)
+PINNED_COUNT = 14        # число закреплённых процессов в pinned_specs
+TW_SHARE = 0.30          # доля технических писателей среди всех процессов (остальное: SA/BA)
 
 STAGES = ("APPLIED", "HR_INTERVIEW", "TECH_INTERVIEW", "TEAM_MEETING", "SECURITY_CHECK", "OFFER")
 FUNNEL_STAGES = STAGES[1:]
@@ -373,6 +376,8 @@ def validate(specs: list[ProcessSpec], today: date) -> list[str]:
             problems.append(text)
 
     need(len(specs) >= 80, f"процессов меньше 80: {len(specs)}")
+    tw_share = sum(1 for s in specs if s.direction == "TW") / len(specs)
+    need(abs(tw_share - TW_SHARE) <= 0.01, f"доля TW {tw_share:.1%} отличается от {TW_SHARE:.0%}")
     need(len({s.company for s in specs}) == len(specs), "названия компаний повторяются")
     for values, getter, label in [
         (DIRECTIONS, lambda s: s.direction, "направление"),
@@ -433,13 +438,23 @@ def validate(specs: list[ProcessSpec], today: date) -> list[str]:
 
 def generate_demo(today: date, seed: int = SEED) -> list[ProcessSpec]:
     rng = random.Random(seed)
-    companies = iter(make_companies(rng, REGULAR_COUNT + 14))
+    companies = iter(make_companies(rng, REGULAR_COUNT + PINNED_COUNT))
+    pinned = pinned_specs(rng, today, companies)
+    if len(pinned) != PINNED_COUNT:
+        raise RuntimeError(f"Ожидалось {PINNED_COUNT} закреплённых процессов, получено {len(pinned)}")
+
+    # Направления распределяются точно: TW_SHARE от всех процессов, остальное SA/BA
+    total = REGULAR_COUNT + PINNED_COUNT
+    regular_tw = round(TW_SHARE * total) - sum(1 for s in pinned if s.direction == "TW")
+    directions = ["TW"] * regular_tw + ["SA_BA"] * (REGULAR_COUNT - regular_tw)
+    rng.shuffle(directions)
+
     specs = []
-    for _ in range(REGULAR_COUNT):
-        spec = base_spec(rng, next(companies))
+    for direction in directions:
+        spec = base_spec(rng, next(companies), direction=direction)
         build_timeline(rng, today, spec)
         specs.append(spec)
-    specs.extend(pinned_specs(rng, today, companies))
+    specs.extend(pinned)
     ensure_coverage(rng, specs)
     problems = validate(specs, today)
     if problems:
@@ -545,7 +560,10 @@ def print_summary(conn) -> None:
 
 
 def main() -> None:
-    today = date.today()
+    parser = argparse.ArgumentParser(description="Загрузка демонстрационных данных")
+    parser.add_argument("--today", type=date.fromisoformat, default=date.today(),
+                        help="«сегодняшняя» дата для расчёта дат демо-данных, ГГГГ-ММ-ДД (по умолчанию сегодня)")
+    today = parser.parse_args().today
     specs = generate_demo(today)           # проверка требований US-19 выполняется внутри
     with get_connection() as conn:
         database = conn.execute("select current_database()").fetchone()[0]
@@ -556,7 +574,7 @@ def main() -> None:
         with conn.transaction():
             load(conn, specs, today)
         conn.commit()
-        print(f"База: {database}; дата загрузки: {today:%d.%m.%Y}")
+        print(f"База: {database}; дата загрузки: {today:%d.%m.%Y} (параметр --today {today.isoformat()})")
         print_summary(conn)
 
 
