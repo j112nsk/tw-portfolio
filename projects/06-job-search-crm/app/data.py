@@ -937,3 +937,170 @@ def delete_process(pid: int, conn: psycopg.Connection | None = None) -> None:
     finally:
         if own:
             conn.close()
+
+# ---------------------------------------------------------------- запись: тестовые задания (US-07)
+
+INSERT_TEST_ASSIGNMENT_SQL = """
+insert into test_assignments
+    (process_id, status_id, received_on, due_on, submitted_on, result_note)
+values
+    (%(pid)s,
+     (select status_id from job_processes where id = %(pid)s),
+     %(received_on)s, %(due_on)s, %(submitted_on)s, %(result_note)s)
+returning id
+"""
+
+UPDATE_TEST_ASSIGNMENT_SQL = """
+update test_assignments
+   set received_on = %(received_on)s,
+       due_on = %(due_on)s,
+       submitted_on = %(submitted_on)s,
+       result_note = %(result_note)s
+ where id = %(test_id)s
+"""
+
+
+def _validate_test_dates(received_on: date, due_on: date | None, submitted_on: date | None) -> None:
+    """INV-13: срок сдачи и дата сдачи не раньше даты получения."""
+    if due_on is not None and due_on < received_on:
+        raise ValueError("Срок сдачи тестового задания не может быть раньше даты получения (INV-13).")
+    if submitted_on is not None and submitted_on < received_on:
+        raise ValueError("Дата сдачи тестового задания не может быть раньше даты получения (INV-13).")
+
+
+def add_test_assignment(
+    pid: int,
+    *,
+    received_on: date,
+    due_on: date | None = None,
+    result_note: str | None = None,
+    conn: psycopg.Connection | None = None,
+) -> int:
+    """Добавляет тестовое задание процессу (US-07, критерий 1).
+
+    status_id = текущий статус процесса на момент добавления (SR7, не пересчитывается).
+    Возвращает id созданной записи.
+    """
+    _validate_test_dates(received_on, due_on, None)
+
+    own = conn is None
+    if own:
+        conn = get_connection()
+    try:
+        process = _fetch_one("select status_id from job_processes where id = %(pid)s",
+                             {"pid": pid}, conn=conn)
+        if process is None:
+            raise ValueError(f"Процесс id={pid} не найден.")
+
+        with conn.transaction():
+            test_id = conn.execute(INSERT_TEST_ASSIGNMENT_SQL, {
+                "pid": pid,
+                "received_on": received_on,
+                "due_on": due_on,
+                "submitted_on": None,
+                "result_note": result_note or None,
+            }).fetchone()[0]
+        return test_id
+    finally:
+        if own:
+            conn.close()
+
+
+def update_test_assignment(
+    test_id: int,
+    *,
+    received_on: date,
+    due_on: date | None = None,
+    submitted_on: date | None = None,
+    result_note: str | None = None,
+    conn: psycopg.Connection | None = None,
+) -> None:
+    """Правка тестового задания: все поля (US-07, критерий 4)."""
+    _validate_test_dates(received_on, due_on, submitted_on)
+
+    own = conn is None
+    if own:
+        conn = get_connection()
+    try:
+        row = _fetch_one("select 1 from test_assignments where id = %(id)s",
+                         {"id": test_id}, conn=conn)
+        if row is None:
+            raise ValueError(f"Тестовое задание id={test_id} не найдено.")
+
+        with conn.transaction():
+            conn.execute(UPDATE_TEST_ASSIGNMENT_SQL, {
+                "test_id": test_id,
+                "received_on": received_on,
+                "due_on": due_on,
+                "submitted_on": submitted_on,
+                "result_note": result_note or None,
+            })
+    finally:
+        if own:
+            conn.close()
+
+
+def mark_test_submitted(
+    test_id: int,
+    *,
+    submitted_on: date,
+    result_note: str | None = None,
+    conn: psycopg.Connection | None = None,
+) -> None:
+    """Отметка «сдано» + результат (US-07, критерий 2).
+
+    Дата сдачи не раньше даты получения (INV-13).
+    """
+    own = conn is None
+    if own:
+        conn = get_connection()
+    try:
+        row = _fetch_one("select received_on from test_assignments where id = %(id)s",
+                         {"id": test_id}, conn=conn)
+        if row is None:
+            raise ValueError(f"Тестовое задание id={test_id} не найдено.")
+        _validate_test_dates(row["received_on"], None, submitted_on)
+
+        with conn.transaction():
+            conn.execute(
+                "update test_assignments set submitted_on = %(submitted_on)s, "
+                "result_note = coalesce(%(result_note)s, result_note) where id = %(id)s",
+                {"id": test_id, "submitted_on": submitted_on,
+                 "result_note": result_note or None})
+    finally:
+        if own:
+            conn.close()
+
+
+def delete_test_assignment(test_id: int,
+                           conn: psycopg.Connection | None = None) -> None:
+    """Удаляет тестовое задание (US-07, критерий 4)."""
+    own = conn is None
+    if own:
+        conn = get_connection()
+    try:
+        row = _fetch_one("select 1 from test_assignments where id = %(id)s",
+                         {"id": test_id}, conn=conn)
+        if row is None:
+            raise ValueError(f"Тестовое задание id={test_id} не найдено.")
+        with conn.transaction():
+            conn.execute("delete from test_assignments where id = %(id)s",
+                         {"id": test_id})
+    finally:
+        if own:
+            conn.close()
+
+
+def get_process_tests(pid: int,
+                      conn: psycopg.Connection | None = None) -> list[dict]:
+    """Тестовые задания процесса (US-07, критерий 4): все, в порядке получения."""
+    return _fetch_all("""
+        select t.id, t.received_on, t.due_on, t.submitted_on, t.result_note,
+               s.name_ru as status_at_receipt,
+               (t.submitted_on is null and t.due_on is not null
+                and t.due_on >= current_date) as is_scheduled
+          from test_assignments t
+          join statuses s on s.id = t.status_id
+         where t.process_id = %(pid)s
+         order by t.received_on, t.id
+    """, {"pid": pid}, conn=conn)
