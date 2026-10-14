@@ -510,3 +510,215 @@ def create_process(
     finally:
         if own:
             conn.close()
+
+# ---------------------------------------------------------------- запись: смена статуса и закрытие
+
+STATUS_INFO_SQL = """
+select id, code, name_ru, kind, stage_order, is_required_stage, in_funnel
+  from statuses
+ where code = %(code)s
+"""
+
+CURRENT_STATUS_SQL = """
+select s.code, s.kind, s.name_ru
+  from job_processes p join statuses s on s.id = p.status_id
+ where p.id = %(pid)s
+"""
+
+HISTORY_STAGES_SQL = """
+select s.code, s.kind, s.stage_order, s.is_required_stage
+  from process_status_history h
+  join statuses s on s.id = h.status_id
+ where h.process_id = %(pid)s
+"""
+
+INSERT_STATUS_SQL = """
+insert into process_status_history (process_id, status_id, stage_date, note, rejection_reason_id)
+values (%(pid)s,
+        (select id from statuses where code = %(status_code)s),
+        %(stage_date)s,
+        %(note)s,
+        (select id from rejection_reasons where code = %(reason_code)s))
+returning id
+"""
+
+# Коды предупреждений о нетипичном переходе (SR2, раздел 5 статусной модели)
+WARN_REOPEN_CLOSED_PROCESS       = "REOPEN_CLOSED_PROCESS"
+WARN_RETURN_TO_EARLIER_STAGE     = "RETURN_TO_EARLIER_STAGE"
+WARN_SKIP_REQUIRED_STAGE         = "SKIP_REQUIRED_STAGE"
+WARN_OFFER_OUTCOME_WITHOUT_OFFER = "OFFER_OUTCOME_WITHOUT_OFFER"
+WARN_CHANGE_AFTER_FINAL_OFFER    = "CHANGE_AFTER_FINAL_OFFER"
+
+FINAL_OFFER_OUTCOMES = ("OFFER_ACCEPTED", "OFFER_DECLINED")
+REJECTION_OUTCOMES   = ("REJECTED_BY_EMPLOYER", "WITHDRAWN_BY_ME")
+
+
+def get_current_status(pid: int, conn: psycopg.Connection | None = None) -> dict | None:
+    """Текущий статус процесса: code, kind, name_ru; None, если процесса нет."""
+    return _fetch_one(CURRENT_STATUS_SQL, {"pid": pid}, conn=conn)
+
+
+def get_status_info(status_code: str, conn: psycopg.Connection | None = None) -> dict | None:
+    """Сведения о статусе справочника (kind, stage_order, name_ru…)."""
+    return _fetch_one(STATUS_INFO_SQL, {"code": status_code}, conn=conn)
+
+
+def _process_history_stages(pid: int, conn: psycopg.Connection | None = None) -> list[dict]:
+    return _fetch_all(HISTORY_STAGES_SQL, {"pid": pid}, conn=conn)
+
+
+def check_atypical_transition(pid: int, new_status_code: str,
+                              conn: psycopg.Connection | None = None) -> list[tuple[str, str]]:
+    """Предупреждения о нетипичном переходе (SR2, раздел 5 статусной модели).
+
+    Возвращает список пар (код, текст); пустой список — переход типичный. Функция только
+    читает данные и не блокирует переход: решение принимает пользователь (D14, R10).
+    """
+    warnings: list[tuple[str, str]] = []
+    new = get_status_info(new_status_code, conn=conn)
+    current = get_current_status(pid, conn=conn)
+    if new is None or current is None:
+        return warnings
+
+    history = _process_history_stages(pid, conn=conn)
+    stage_codes = {h["code"] for h in history if h["kind"] == "stage"}
+    max_order = max((h["stage_order"] for h in history if h["kind"] == "stage"), default=0)
+
+    # Возврат закрытого процесса в работу
+    if current["kind"] == "outcome" and new["kind"] == "stage":
+        warnings.append((WARN_REOPEN_CLOSED_PROCESS,
+                         f"Закрытый процесс возвращается в работу: устанавливается этап «{new['name_ru']}»"))
+
+    # Возврат на более ранний этап
+    if new["kind"] == "stage" and new["stage_order"] is not None and max_order:
+        if new["stage_order"] < max_order:
+            warnings.append((WARN_RETURN_TO_EARLIER_STAGE,
+                             f"Возврат на более ранний этап: «{new['name_ru']}» "
+                             f"при достигнутом порядке {max_order}"))
+
+    # Пропуск обязательного этапа
+    if new["kind"] == "stage" and new["stage_order"] is not None:
+        skipped = _fetch_all(
+            "select code, name_ru from statuses "
+            "where kind = 'stage' and is_required_stage and stage_order < %(order)s "
+            "order by stage_order",
+            {"order": new["stage_order"]}, conn=conn)
+        missing = [s for s in skipped if s["code"] not in stage_codes]
+        if missing:
+            warnings.append((WARN_SKIP_REQUIRED_STAGE,
+                             "Пропущен обязательный этап: "
+                             + ", ".join(f"«{s['name_ru']}»" for s in missing)))
+
+    # OFFER_ACCEPTED / OFFER_DECLINED, если в истории нет OFFER
+    if new["code"] in FINAL_OFFER_OUTCOMES and "OFFER" not in stage_codes:
+        warnings.append((WARN_OFFER_OUTCOME_WITHOUT_OFFER,
+                         f"Устанавливается «{new['name_ru']}», но в истории нет этапа «Оффер»"))
+
+    # Изменение статуса после OFFER_ACCEPTED / OFFER_DECLINED
+    if current["code"] in FINAL_OFFER_OUTCOMES:
+        warnings.append((WARN_CHANGE_AFTER_FINAL_OFFER,
+                         f"Изменение статуса после «{current['name_ru']}»"))
+
+    return warnings
+
+
+def _insert_status_record(pid: int, status_code: str, stage_date: date,
+                          note: str | None, reason_code: str | None,
+                          conn: psycopg.Connection) -> int:
+    return conn.execute(INSERT_STATUS_SQL, {
+        "pid": pid, "status_code": status_code, "stage_date": stage_date,
+        "note": note, "reason_code": reason_code,
+    }).fetchone()[0]
+
+
+def _qualifies_for_rejection_reason(pid: int, conn: psycopg.Connection) -> bool:
+    """SR9: причина обязательна, если в истории есть этап воронки или тестовое задание."""
+    row = _fetch_one("""
+        select
+            exists (select 1 from process_status_history h
+                      join statuses s on s.id = h.status_id
+                     where h.process_id = %(pid)s and s.in_funnel)            as has_funnel_stage,
+            exists (select 1 from test_assignments where process_id = %(pid)s) as has_tests
+    """, {"pid": pid}, conn=conn)
+    return bool(row and (row["has_funnel_stage"] or row["has_tests"]))
+
+
+def update_process_status(pid: int, status_code: str, stage_date: date,
+                          note: str | None = None,
+                          confirm_atypical: bool = False,
+                          conn: psycopg.Connection | None = None) -> list[tuple[str, str]]:
+    """Устанавливает этап процесса (US-04): добавляет запись истории; статус пересчитает триггер.
+
+    Возвращает список предупреждений (нетипичный переход). Если предупреждения есть,
+    а confirm_atypical=False, запись не выполняется и поднимается ValueError.
+    """
+    own = conn is None
+    if own:
+        conn = get_connection()
+    try:
+        status = get_status_info(status_code, conn=conn)
+        if status is None:
+            raise ValueError(f"Статус «{status_code}» не найден в справочнике.")
+        if status["kind"] != "stage":
+            raise ValueError(f"«{status['name_ru']}» — итог; для закрытия используйте close_process().")
+
+        warnings = check_atypical_transition(pid, status_code, conn=conn)
+        if warnings and not confirm_atypical:
+            texts = "; ".join(text for _, text in warnings)
+            raise ValueError(f"Нетипичный переход требует подтверждения: {texts}")
+
+        with conn.transaction():
+            _insert_status_record(pid, status_code, stage_date, note or None, None, conn)
+        return warnings
+    finally:
+        if own:
+            conn.close()
+
+
+def close_process(pid: int, outcome_code: str, stage_date: date,
+                  rejection_reason_code: str | None = None,
+                  note: str | None = None,
+                  confirm_atypical: bool = False,
+                  conn: psycopg.Connection | None = None) -> list[tuple[str, str]]:
+    """Закрывает процесс итогом (US-06).
+
+    Причина отказа (SR9): обязательна для REJECTED_BY_EMPLOYER и WITHDRAWN_BY_ME, если в истории
+    есть этап воронки или тестовое задание; для NO_RESPONSE, OFFER_ACCEPTED, OFFER_DECLINED — не
+    допускается.
+    """
+    own = conn is None
+    if own:
+        conn = get_connection()
+    try:
+        status = get_status_info(outcome_code, conn=conn)
+        if status is None:
+            raise ValueError(f"Статус «{outcome_code}» не найден в справочнике.")
+        if status["kind"] != "outcome":
+            raise ValueError(f"«{status['name_ru']}» — этап; для этапа используйте update_process_status().")
+
+        if outcome_code in REJECTION_OUTCOMES:
+            if _qualifies_for_rejection_reason(pid, conn) and not rejection_reason_code:
+                raise ValueError("Для отказа после интервью или тестового задания укажите "
+                                 "причину (SR9).")
+            if rejection_reason_code:
+                reason = _fetch_one("select code from rejection_reasons where code = %(code)s",
+                                    {"code": rejection_reason_code}, conn=conn)
+                if reason is None:
+                    raise ValueError(f"Причина отказа «{rejection_reason_code}» не найдена.")
+        else:
+            if rejection_reason_code:
+                raise ValueError("Причина отказа допустима только для REJECTED_BY_EMPLOYER "
+                                 "и WITHDRAWN_BY_ME (INV-08).")
+
+        warnings = check_atypical_transition(pid, outcome_code, conn=conn)
+        if warnings and not confirm_atypical:
+            texts = "; ".join(text for _, text in warnings)
+            raise ValueError(f"Нетипичный переход требует подтверждения: {texts}")
+
+        with conn.transaction():
+            _insert_status_record(pid, outcome_code, stage_date, note or None,
+                                  rejection_reason_code, conn)
+        return warnings
+    finally:
+        if own:
+            conn.close()
