@@ -1104,3 +1104,156 @@ def get_process_tests(pid: int,
          where t.process_id = %(pid)s
          order by t.received_on, t.id
     """, {"pid": pid}, conn=conn)
+
+# ---------------------------------------------------------------- запись: навыки (US-11)
+
+DELETE_PROCESS_SKILLS_SQL = "delete from process_skills where process_id = %(pid)s"
+
+INSERT_PROCESS_SKILL_SQL = """
+insert into process_skills (process_id, skill_id) values (%(pid)s, %(sid)s)
+"""
+
+DELETE_PROFILE_SKILLS_SQL = """
+delete from profile_skills
+ where direction_id = (select id from directions where code = %(code)s)
+"""
+
+INSERT_PROFILE_SKILL_SQL = """
+insert into profile_skills (direction_id, skill_id)
+values ((select id from directions where code = %(code)s), %(sid)s)
+"""
+
+
+def _normalize_skill_names(skill_names: list[str]) -> list[str]:
+    """Приводит имена навыков к виду «без пробелов по краям, без дублей без учёта регистра».
+
+    Первое написание сохраняется, последующие дубликаты (в том числе в другом регистре)
+    отбрасываются (INV-14, US-11 критерий 3).
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+    for name in skill_names:
+        clean = (name or "").strip()
+        if not clean:
+            continue
+        key = clean.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(clean)
+    return result
+
+
+def _resolve_skill_id(name: str, conn: psycopg.Connection) -> int:
+    """id навыка по имени без учёта регистра; создаёт навык, если его нет (INV-14)."""
+    row = conn.execute("select id from skills where lower(name) = lower(%(name)s)",
+                       {"name": name}).fetchone()
+    if row is not None:
+        return row[0]
+    row = conn.execute("insert into skills (name) values (%(name)s) returning id",
+                       {"name": name}).fetchone()
+    return row[0]
+
+
+def set_process_skills(pid: int, skill_names: list[str],
+                       conn: psycopg.Connection | None = None) -> list[str]:
+    """Заменяет набор навыков вакансии у процесса (US-11, критерий 3).
+
+    Возвращает фактически сохранённые названия после нормализации.
+    Навыки хранятся у процесса независимо от текущего статуса; в рейтинг Q5/Q6
+    попадут только процессы с HR-интервью и позже (INV-17, D8).
+    """
+    own = conn is None
+    if own:
+        conn = get_connection()
+    try:
+        row = _fetch_one("select 1 from job_processes where id = %(pid)s",
+                         {"pid": pid}, conn=conn)
+        if row is None:
+            raise ValueError(f"Процесс id={pid} не найден.")
+
+        normalized = _normalize_skill_names(skill_names)
+        with conn.transaction():
+            conn.execute(DELETE_PROCESS_SKILLS_SQL, {"pid": pid})
+            for name in normalized:
+                sid = _resolve_skill_id(name, conn)
+                conn.execute(INSERT_PROCESS_SKILL_SQL, {"pid": pid, "sid": sid})
+        return normalized
+    finally:
+        if own:
+            conn.close()
+
+
+def set_profile_skills(direction_code: str, skill_names: list[str],
+                       conn: psycopg.Connection | None = None) -> list[str]:
+    """Заменяет профиль навыков направления (D3, US-11, критерий 6).
+
+    Профили направлений независимы. Возвращает нормализованный список.
+    """
+    own = conn is None
+    if own:
+        conn = get_connection()
+    try:
+        dir_row = _fetch_one("select id from directions where code = %(code)s",
+                             {"code": direction_code}, conn=conn)
+        if dir_row is None:
+            raise ValueError(f"Направление «{direction_code}» не найдено.")
+        direction_id = dir_row["id"]
+
+        normalized = _normalize_skill_names(skill_names)
+        with conn.transaction():
+            conn.execute("delete from profile_skills where direction_id = %(did)s",
+                         {"did": direction_id})
+            for name in normalized:
+                sid = _resolve_skill_id(name, conn)
+                conn.execute("insert into profile_skills (direction_id, skill_id) "
+                             "values (%(did)s, %(sid)s)",
+                             {"did": direction_id, "sid": sid})
+        return normalized
+    finally:
+        if own:
+            conn.close()
+
+
+def get_process_skills(pid: int, conn: psycopg.Connection | None = None) -> list[str]:
+    """Навыки процесса (для карточки и тестов)."""
+    return [row["name"] for row in _fetch_all("""
+        select sk.name
+          from process_skills ps
+          join skills sk on sk.id = ps.skill_id
+         where ps.process_id = %(pid)s
+         order by lower(sk.name)
+    """, {"pid": pid}, conn=conn)]
+
+
+def get_direction_profile_skills(direction_code: str,
+                                 conn: psycopg.Connection | None = None) -> list[str]:
+    """Профиль навыков направления (D3)."""
+    return [row["name"] for row in _fetch_all("""
+        select sk.name
+          from profile_skills pf
+          join skills sk on sk.id = pf.skill_id
+          join directions d on d.id = pf.direction_id
+         where d.code = %(code)s
+         order by lower(sk.name)
+    """, {"code": direction_code}, conn=conn)]
+
+
+def get_direction_skill_suggestions(direction_code: str,
+                                    conn: psycopg.Connection | None = None) -> list[str]:
+    """Навыки, встречавшиеся у процессов этого направления (US-11, критерий 3).
+
+    Используется для подсказок при вводе. Сортировка без учёта регистра.
+    GROUP BY вместо DISTINCT: PostgreSQL разрешает ORDER BY по выражению от группируемой колонки,
+    но не разрешает его при DISTINCT, если выражения нет в списке выборки.
+    """
+    return [row["name"] for row in _fetch_all("""
+        select sk.name
+          from process_skills ps
+          join skills sk on sk.id = ps.skill_id
+          join job_processes p on p.id = ps.process_id
+          join directions d on d.id = p.direction_id
+         where d.code = %(code)s
+         group by sk.name
+         order by lower(sk.name)
+    """, {"code": direction_code}, conn=conn)]
