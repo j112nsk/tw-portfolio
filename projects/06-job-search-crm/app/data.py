@@ -12,6 +12,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import psycopg
 from psycopg.rows import dict_row
 
 from db.connection import get_connection
@@ -33,24 +34,32 @@ REFERENCE_TABLES = {
 
 # ---------------------------------------------------------------- соединение
 
-def _fetch_all(sql: str, params: dict | None = None) -> list[dict]:
-    conn = get_connection()
+def _fetch_all(sql: str, params: dict | None = None,
+               conn: psycopg.Connection | None = None) -> list[dict]:
+    own = conn is None
+    if own:
+        conn = get_connection()
     try:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, params or {})
             return cur.fetchall()
     finally:
-        conn.close()
+        if own:
+            conn.close()
 
 
-def _fetch_one(sql: str, params: dict | None = None) -> dict | None:
-    conn = get_connection()
+def _fetch_one(sql: str, params: dict | None = None,
+               conn: psycopg.Connection | None = None) -> dict | None:
+    own = conn is None
+    if own:
+        conn = get_connection()
     try:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, params or {})
             return cur.fetchone()
     finally:
-        conn.close()
+        if own:
+            conn.close()
 
 
 # ---------------------------------------------------------------- база и справочники
@@ -278,3 +287,226 @@ def get_process_card(process_id: int) -> dict | None:
     tests = _fetch_all(CARD_TESTS_SQL, {"pid": process_id})
     skills = [row["name"] for row in _fetch_all(CARD_SKILLS_SQL, {"pid": process_id})]
     return {"process": process, "history": history, "tests": tests, "skills": skills}
+
+# ---------------------------------------------------------------- запись: создание процесса
+
+CREATE_PROCESS_SQL = """
+insert into job_processes
+    (direction_id, initiator, company_name, vacancy_title, vacancy_url,
+     vacancy_source_id, apply_channel_id, communication_channel_id,
+     employer_type_id, employment_format_id, salary_from, salary_to,
+     contact_name, contact_position, note, status_id)
+values
+    ((select id from directions          where code = %(direction_code)s),
+     %(initiator)s, %(company_name)s, %(vacancy_title)s, %(vacancy_url)s,
+     (select id from vacancy_sources     where code = %(vacancy_source_code)s),
+     (select id from channels            where code = %(apply_channel_code)s),
+     (select id from channels            where code = %(communication_channel_code)s),
+     (select id from employer_types      where code = %(employer_type_code)s),
+     (select id from employment_formats  where code = %(employment_format_code)s),
+     %(salary_from)s, %(salary_to)s,
+     %(contact_name)s, %(contact_position)s, %(note)s,
+     (select id from statuses            where code = %(initial_status_code)s))
+returning id
+"""
+
+INSERT_FIRST_HISTORY_SQL = """
+insert into process_status_history (process_id, status_id, stage_date)
+values (%(pid)s,
+        (select id from statuses where code = %(status_code)s),
+        %(stage_date)s)
+"""
+
+INSERT_FIRST_TEST_SQL = """
+insert into test_assignments (process_id, status_id, received_on, due_on)
+values (%(pid)s,
+        (select id from statuses where code = %(status_code)s),
+        %(received_on)s, %(due_on)s)
+"""
+
+
+def get_initial_stages() -> list[dict]:
+    """Этапы для формы создания процесса (SR1: только kind = 'stage')."""
+    return _fetch_all(
+        "select id, code, name_ru, stage_order from statuses "
+        "where kind = 'stage' order by stage_order"
+    )
+
+
+def get_last_process_defaults(conn: psycopg.Connection | None = None) -> dict:
+    """Значения по умолчанию для формы (US-01, критерий 2).
+
+    direction и communication_channel — из самого недавно созданного процесса (id desc);
+    vacancy_source и apply_channel — из самого недавно созданного процесса с инициатором
+    applicant (у входящих они пусты, D11).
+    Если процессов нет — все значения None.
+
+    Параметр conn позволяет вызывать функцию в чужой транзакции (тесты, составные операции).
+    """
+    last = _fetch_one("""
+        select d.code as direction_code,
+               cc.code as communication_channel_code
+          from job_processes p
+          join directions d  on d.id  = p.direction_id
+          join channels   cc on cc.id = p.communication_channel_id
+         order by p.id desc
+         limit 1
+    """, conn=conn) or {"direction_code": None, "communication_channel_code": None}
+
+    last_applicant = _fetch_one("""
+        select vs.code as vacancy_source_code,
+               ac.code as apply_channel_code
+          from job_processes p
+          join vacancy_sources vs on vs.id = p.vacancy_source_id
+          join channels       ac on ac.id = p.apply_channel_id
+         where p.initiator = 'applicant'
+         order by p.id desc
+         limit 1
+    """, conn=conn) or {"vacancy_source_code": None, "apply_channel_code": None}
+
+    return {**last, **last_applicant}
+
+
+def _validate_create_process(
+    *,
+    initiator: str,
+    company_name: str,
+    vacancy_title: str,
+    vacancy_url: str | None,
+    vacancy_source_code: str | None,
+    apply_channel_code: str | None,
+    communication_channel_code: str | None,
+    salary_from: int | None,
+    salary_to: int | None,
+    initial_status_code: str,
+    test_due_on: date | None,
+) -> None:
+    if initiator not in ("applicant", "employer"):
+        raise ValueError("Инициатор должен быть applicant или employer (INV-01).")
+
+    if not company_name or not company_name.strip():
+        raise ValueError("Укажите название компании.")
+    if not vacancy_title or not vacancy_title.strip():
+        raise ValueError("Укажите название вакансии.")
+    if not communication_channel_code:
+        raise ValueError("Канал общения обязателен (INV-03).")
+
+    if initiator == "applicant":
+        if not vacancy_source_code:
+            raise ValueError("Для процесса, начатого откликом, укажите источник вакансии (INV-02).")
+        if not apply_channel_code:
+            raise ValueError("Для процесса, начатого откликом, укажите канал отклика (INV-02).")
+    else:
+        if vacancy_source_code or apply_channel_code:
+            raise ValueError("У входящего процесса источник вакансии и канал отклика не заполняются (INV-02).")
+
+    if vacancy_url:
+        if not (vacancy_url.startswith("http://") or vacancy_url.startswith("https://")):
+            raise ValueError("Ссылка на вакансию должна начинаться с http:// или https:// (INV-07).")
+        if any(ch.isspace() for ch in vacancy_url):
+            raise ValueError("Ссылка на вакансию не должна содержать пробелов (INV-07).")
+
+    if salary_from is not None and salary_from <= 0:
+        raise ValueError("Вилка «от» должна быть больше нуля (INV-05).")
+    if salary_to is not None and salary_to <= 0:
+        raise ValueError("Вилка «до» должна быть больше нуля (INV-05).")
+    if salary_from is not None and salary_to is not None and salary_from > salary_to:
+        raise ValueError("Вилка «от» не должна быть больше «до» (INV-05).")
+
+    if initial_status_code == "APPLIED":
+        if test_due_on is not None and test_due_on < date.today():
+            pass  # допускаем: тестовое могло быть выдано раньше, чем создаётся запись
+    else:
+        if test_due_on is not None:
+            raise ValueError("Срок сдачи тестового задания можно указать только "
+                             "при начальном статусе «Отклик» (US-01, критерий 5).")
+
+
+def create_process(
+    *,
+    direction_code: str,
+    initiator: str,
+    company_name: str,
+    vacancy_title: str,
+    initial_status_code: str,
+    initial_stage_date: date,
+    communication_channel_code: str,
+    vacancy_source_code: str | None = None,
+    apply_channel_code: str | None = None,
+    vacancy_url: str | None = None,
+    employer_type_code: str | None = None,
+    employment_format_code: str | None = None,
+    salary_from: int | None = None,
+    salary_to: int | None = None,
+    contact_name: str | None = None,
+    contact_position: str | None = None,
+    note: str | None = None,
+    test_due_on: date | None = None,
+    conn: psycopg.Connection | None = None,
+) -> int:
+    """Создаёт процесс (US-01): job_processes + первая запись истории (+ тестовое при «Отклике»).
+
+    Всё в одной транзакции (NFR-03). Возвращает id созданного процесса.
+    Начальный статус — этап; создать процесс сразу с итогом нельзя (SR1).
+    """
+    _validate_create_process(
+        initiator=initiator, company_name=company_name, vacancy_title=vacancy_title,
+        vacancy_url=vacancy_url, vacancy_source_code=vacancy_source_code,
+        apply_channel_code=apply_channel_code, communication_channel_code=communication_channel_code,
+        salary_from=salary_from, salary_to=salary_to,
+        initial_status_code=initial_status_code, test_due_on=test_due_on,
+    )
+
+    own = conn is None
+    if own:
+        conn = get_connection()
+    try:
+        # Начальный статус должен быть этапом (SR1)
+        status_row = _fetch_one(
+            "select kind, code from statuses where code = %(code)s",
+            {"code": initial_status_code}, conn=conn,
+        )
+        if status_row is None:
+            raise ValueError(f"Статус «{initial_status_code}» не найден в справочнике.")
+        if status_row["kind"] != "stage":
+            raise ValueError("Процесс нельзя создать сразу с итоговым статусом (SR1).")
+
+        with conn.transaction():
+            pid = conn.execute(CREATE_PROCESS_SQL, {
+                "direction_code": direction_code,
+                "initiator": initiator,
+                "company_name": company_name.strip(),
+                "vacancy_title": vacancy_title.strip(),
+                "vacancy_url": vacancy_url or None,
+                "vacancy_source_code": vacancy_source_code,
+                "apply_channel_code": apply_channel_code,
+                "communication_channel_code": communication_channel_code,
+                "employer_type_code": employer_type_code,
+                "employment_format_code": employment_format_code,
+                "salary_from": salary_from,
+                "salary_to": salary_to,
+                "contact_name": contact_name or None,
+                "contact_position": contact_position or None,
+                "note": note or None,
+                "initial_status_code": initial_status_code,
+            }).fetchone()[0]
+
+            conn.execute(INSERT_FIRST_HISTORY_SQL, {
+                "pid": pid,
+                "status_code": initial_status_code,
+                "stage_date": initial_stage_date,
+            })
+
+            if initial_status_code == "APPLIED":
+                # US-01, критерий 5 и INV-20: при начальном «Отклике» тестовое обязательно.
+                conn.execute(INSERT_FIRST_TEST_SQL, {
+                    "pid": pid,
+                    "status_code": initial_status_code,
+                    "received_on": initial_stage_date,
+                    "due_on": test_due_on,
+                })
+
+        return pid
+    finally:
+        if own:
+            conn.close()
