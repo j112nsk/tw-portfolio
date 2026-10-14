@@ -367,7 +367,31 @@ def get_last_process_defaults(conn: psycopg.Connection | None = None) -> dict:
     return {**last, **last_applicant}
 
 
-def _validate_create_process(
+_REFERENCE_TABLES = {
+    "directions", "vacancy_sources", "channels", "employer_types",
+    "employment_formats", "statuses", "rejection_reasons",
+}
+
+
+def _ensure_reference_codes(checks: list[tuple[str, str | None, str]],
+                            conn: psycopg.Connection | None = None) -> None:
+    """Проверяет, что справочные коды существуют.
+
+    checks: список троек (таблица, код, метка для сообщения об ошибке).
+    None пропускается. Если код задан, но не найден — ValueError.
+    """
+    for table, code, label in checks:
+        if code is None:
+            continue
+        if table not in _REFERENCE_TABLES:
+            raise ValueError(f"Внутренняя ошибка: неизвестный справочник {table}")
+        row = _fetch_one(f"select 1 from {table} where code = %(code)s",
+                         {"code": code}, conn=conn)
+        if row is None:
+            raise ValueError(f"{label}: значение «{code}» не найдено в справочнике.")
+
+
+def _validate_common_fields(
     *,
     initiator: str,
     company_name: str,
@@ -378,12 +402,8 @@ def _validate_create_process(
     communication_channel_code: str | None,
     salary_from: int | None,
     salary_to: int | None,
-    initial_status_code: str,
-    test_due_on: date | None,
 ) -> None:
-    if initiator not in ("applicant", "employer"):
-        raise ValueError("Инициатор должен быть applicant или employer (INV-01).")
-
+    """Валидации полей процесса, общие для создания и правки (US-01, US-05)."""
     if not company_name or not company_name.strip():
         raise ValueError("Укажите название компании.")
     if not vacancy_title or not vacancy_title.strip():
@@ -413,13 +433,35 @@ def _validate_create_process(
     if salary_from is not None and salary_to is not None and salary_from > salary_to:
         raise ValueError("Вилка «от» не должна быть больше «до» (INV-05).")
 
-    if initial_status_code == "APPLIED":
-        if test_due_on is not None and test_due_on < date.today():
-            pass  # допускаем: тестовое могло быть выдано раньше, чем создаётся запись
-    else:
-        if test_due_on is not None:
-            raise ValueError("Срок сдачи тестового задания можно указать только "
-                             "при начальном статусе «Отклик» (US-01, критерий 5).")
+
+def _validate_create_process(
+    *,
+    initiator: str,
+    company_name: str,
+    vacancy_title: str,
+    vacancy_url: str | None,
+    vacancy_source_code: str | None,
+    apply_channel_code: str | None,
+    communication_channel_code: str | None,
+    salary_from: int | None,
+    salary_to: int | None,
+    initial_status_code: str,
+    test_due_on: date | None,
+) -> None:
+    if initiator not in ("applicant", "employer"):
+        raise ValueError("Инициатор должен быть applicant или employer (INV-01).")
+
+    _validate_common_fields(
+        initiator=initiator, company_name=company_name, vacancy_title=vacancy_title,
+        vacancy_url=vacancy_url, vacancy_source_code=vacancy_source_code,
+        apply_channel_code=apply_channel_code,
+        communication_channel_code=communication_channel_code,
+        salary_from=salary_from, salary_to=salary_to,
+    )
+
+    if initial_status_code != "APPLIED" and test_due_on is not None:
+        raise ValueError("Срок сдачи тестового задания можно указать только "
+                         "при начальном статусе «Отклик» (US-01, критерий 5).")
 
 
 def create_process(
@@ -461,7 +503,15 @@ def create_process(
     if own:
         conn = get_connection()
     try:
-        # Начальный статус должен быть этапом (SR1)
+        _ensure_reference_codes([
+            ("directions", direction_code, "Направление"),
+            ("channels", communication_channel_code, "Канал общения"),
+            ("vacancy_sources", vacancy_source_code, "Источник вакансии"),
+            ("channels", apply_channel_code, "Канал отклика"),
+            ("employer_types", employer_type_code, "Тип работодателя"),
+            ("employment_formats", employment_format_code, "Формат трудоустройства"),
+        ], conn=conn)
+
         status_row = _fetch_one(
             "select kind, code from statuses where code = %(code)s",
             {"code": initial_status_code}, conn=conn,
@@ -498,7 +548,6 @@ def create_process(
             })
 
             if initial_status_code == "APPLIED":
-                # US-01, критерий 5 и INV-20: при начальном «Отклике» тестовое обязательно.
                 conn.execute(INSERT_FIRST_TEST_SQL, {
                     "pid": pid,
                     "status_code": initial_status_code,
@@ -719,6 +768,172 @@ def close_process(pid: int, outcome_code: str, stage_date: date,
             _insert_status_record(pid, outcome_code, stage_date, note or None,
                                   rejection_reason_code, conn)
         return warnings
+    finally:
+        if own:
+            conn.close()
+
+
+# ---------------------------------------------------------------- запись: правка полей, дат этапов, удаление
+
+UPDATE_PROCESS_SQL = """
+update job_processes
+   set direction_id = (select id from directions            where code = %(direction_code)s),
+       company_name = %(company_name)s,
+       vacancy_title = %(vacancy_title)s,
+       vacancy_url = %(vacancy_url)s,
+       vacancy_source_id = (select id from vacancy_sources  where code = %(vacancy_source_code)s),
+       apply_channel_id = (select id from channels           where code = %(apply_channel_code)s),
+       communication_channel_id = (select id from channels   where code = %(communication_channel_code)s),
+       employer_type_id = (select id from employer_types     where code = %(employer_type_code)s),
+       employment_format_id = (select id from employment_formats where code = %(employment_format_code)s),
+       salary_from = %(salary_from)s,
+       salary_to = %(salary_to)s,
+       contact_name = %(contact_name)s,
+       contact_position = %(contact_position)s,
+       note = %(note)s
+ where id = %(pid)s
+"""
+
+
+def update_process_fields(
+    pid: int,
+    *,
+    direction_code: str,
+    company_name: str,
+    vacancy_title: str,
+    communication_channel_code: str,
+    vacancy_url: str | None = None,
+    vacancy_source_code: str | None = None,
+    apply_channel_code: str | None = None,
+    employer_type_code: str | None = None,
+    employment_format_code: str | None = None,
+    salary_from: int | None = None,
+    salary_to: int | None = None,
+    contact_name: str | None = None,
+    contact_position: str | None = None,
+    note: str | None = None,
+    conn: psycopg.Connection | None = None,
+) -> None:
+    """Правка полей карточки (US-05, критерий 1).
+
+    Инициатор не меняется (INV-19): его значение читается из базы и используется в валидациях.
+    """
+    own = conn is None
+    if own:
+        conn = get_connection()
+    try:
+        row = _fetch_one("select initiator from job_processes where id = %(pid)s",
+                         {"pid": pid}, conn=conn)
+        if row is None:
+            raise ValueError(f"Процесс id={pid} не найден.")
+
+        _validate_common_fields(
+            initiator=row["initiator"],
+            company_name=company_name, vacancy_title=vacancy_title,
+            vacancy_url=vacancy_url, vacancy_source_code=vacancy_source_code,
+            apply_channel_code=apply_channel_code,
+            communication_channel_code=communication_channel_code,
+            salary_from=salary_from, salary_to=salary_to,
+        )
+
+        _ensure_reference_codes([
+            ("directions", direction_code, "Направление"),
+            ("channels", communication_channel_code, "Канал общения"),
+            ("vacancy_sources", vacancy_source_code, "Источник вакансии"),
+            ("channels", apply_channel_code, "Канал отклика"),
+            ("employer_types", employer_type_code, "Тип работодателя"),
+            ("employment_formats", employment_format_code, "Формат трудоустройства"),
+        ], conn=conn)
+
+        with conn.transaction():
+            conn.execute(UPDATE_PROCESS_SQL, {
+                "pid": pid,
+                "direction_code": direction_code,
+                "company_name": company_name.strip(),
+                "vacancy_title": vacancy_title.strip(),
+                "vacancy_url": vacancy_url or None,
+                "vacancy_source_code": vacancy_source_code,
+                "apply_channel_code": apply_channel_code,
+                "communication_channel_code": communication_channel_code,
+                "employer_type_code": employer_type_code,
+                "employment_format_code": employment_format_code,
+                "salary_from": salary_from,
+                "salary_to": salary_to,
+                "contact_name": contact_name or None,
+                "contact_position": contact_position or None,
+                "note": note or None,
+            })
+    finally:
+        if own:
+            conn.close()
+
+
+def update_history_record(
+    history_id: int,
+    *,
+    stage_date: date,
+    note: str | None = None,
+    conn: psycopg.Connection | None = None,
+) -> None:
+    """Правка даты и комментария записи истории (US-05, D22).
+
+    Прежнее значение не сохраняется. Порядок записей триггером не пересчитывается:
+    он опирается на recorded_at, а не на stage_date.
+    """
+    own = conn is None
+    if own:
+        conn = get_connection()
+    try:
+        row = _fetch_one("select 1 from process_status_history where id = %(id)s",
+                         {"id": history_id}, conn=conn)
+        if row is None:
+            raise ValueError(f"Запись истории id={history_id} не найдена.")
+        with conn.transaction():
+            conn.execute(
+                "update process_status_history set stage_date = %(d)s, note = %(note)s "
+                "where id = %(id)s",
+                {"id": history_id, "d": stage_date, "note": note or None})
+    finally:
+        if own:
+            conn.close()
+
+
+def delete_history_record(history_id: int,
+                          conn: psycopg.Connection | None = None) -> None:
+    """Удаляет запись истории (US-05, критерий 3).
+
+    Если запись единственная, триггер `process_status_history_protect_last` поднимет ошибку
+    (INV-18). После удаления триггер `process_status_history_sync_status` пересчитает
+    job_processes.status_id по оставшейся последней записи (INV-10).
+    """
+    own = conn is None
+    if own:
+        conn = get_connection()
+    try:
+        row = _fetch_one("select 1 from process_status_history where id = %(id)s",
+                         {"id": history_id}, conn=conn)
+        if row is None:
+            raise ValueError(f"Запись истории id={history_id} не найдена.")
+        with conn.transaction():
+            conn.execute("delete from process_status_history where id = %(id)s",
+                         {"id": history_id})
+    finally:
+        if own:
+            conn.close()
+
+
+def delete_process(pid: int, conn: psycopg.Connection | None = None) -> None:
+    """Удаляет процесс каскадом: история, тестовые задания, связи с навыками (US-05, DM-06)."""
+    own = conn is None
+    if own:
+        conn = get_connection()
+    try:
+        row = _fetch_one("select 1 from job_processes where id = %(pid)s",
+                         {"pid": pid}, conn=conn)
+        if row is None:
+            raise ValueError(f"Процесс id={pid} не найден.")
+        with conn.transaction():
+            conn.execute("delete from job_processes where id = %(pid)s", {"pid": pid})
     finally:
         if own:
             conn.close()
