@@ -347,7 +347,10 @@ def _highlight_history_row(row):
 st.dataframe(history_df.style.apply(_highlight_history_row, axis=1),
              hide_index=True, width="stretch")
 
+# ---------------------------------------------------------------- тестовые задания (US-07)
+
 st.subheader("Тестовые задания")
+
 if card["tests"]:
     st.dataframe(
         [{"Получено": row["received_on"], "Статус при получении": row["status_at_receipt"],
@@ -360,8 +363,102 @@ if card["tests"]:
 else:
     st.caption("Тестовых заданий нет.")
 
+with st.expander("➕ Добавить тестовое задание"):
+    new_received = st.date_input(
+        "Дата получения", value=date.today(), format="DD.MM.YYYY", key="test_new_received")
+    new_due = st.date_input(
+        "Срок сдачи (необязательно)", value=None, format="DD.MM.YYYY", key="test_new_due")
+    new_result_note = st.text_input("Комментарий", key="test_new_note")
+
+    if st.button("Добавить тестовое", type="primary", key="test_new_add"):
+        try:
+            data.add_test_assignment(
+                process_id, received_on=new_received, due_on=new_due,
+                result_note=new_result_note.strip() or None)
+        except ValueError as error:
+            st.error(str(error))
+        else:
+            for key in ("test_new_received", "test_new_due", "test_new_note"):
+                st.session_state.pop(key, None)
+            st.success("Тестовое задание добавлено.")
+            st.rerun()
+
+if card["tests"]:
+    st.markdown("**Изменить существующее тестовое задание**")
+    test_options: dict[str, dict] = {}
+    for row in card["tests"]:
+        label = f"получено {fmt.format_date(row['received_on'])}"
+        label += f", срок {fmt.format_date(row['due_on'])}" if row["due_on"] else ", без срока"
+        label += " — сдано" if row["submitted_on"] else " — не сдано"
+        test_options[label] = row
+
+    chosen_label = st.selectbox("Выберите тестовое задание",
+                                options=list(test_options), key="test_edit_choice")
+    chosen = test_options[chosen_label]
+
+    col_submit, col_delete = st.columns(2)
+
+    with col_submit:
+        if chosen["submitted_on"] is None:
+            submitted_date = st.date_input(
+                "Дата сдачи", value=date.today(), format="DD.MM.YYYY",
+                key=f"test_sub_date_{chosen['id']}")
+            submitted_note = st.text_input(
+                "Результат (необязательно)", value=chosen["result_note"] or "",
+                key=f"test_sub_note_{chosen['id']}")
+            if st.button("Отметить «сдано»", type="primary",
+                         key=f"test_sub_btn_{chosen['id']}"):
+                try:
+                    data.mark_test_submitted(chosen["id"], submitted_on=submitted_date,
+                                             result_note=submitted_note.strip() or None)
+                except ValueError as error:
+                    st.error(str(error))
+                else:
+                    st.success("Отметка о сдаче сохранена.")
+                    st.rerun()
+        else:
+            st.caption(f"Сдано {fmt.format_date(chosen['submitted_on'])}. "
+                       f"Изменение даты сдачи — правкой полей тестового "
+                       f"(в текущей версии только отметка и удаление).")
+
+    with col_delete:
+        st.caption("Удаление необратимо.")
+        confirm_delete_test = st.checkbox("Подтверждаю удаление тестового задания",
+                                          key=f"test_del_confirm_{chosen['id']}")
+        if st.button("Удалить тестовое", disabled=not confirm_delete_test,
+                     key=f"test_del_btn_{chosen['id']}"):
+            try:
+                data.delete_test_assignment(chosen["id"])
+            except ValueError as error:
+                st.error(str(error))
+            else:
+                st.success("Тестовое задание удалено.")
+                st.rerun()
+
+# ---------------------------------------------------------------- навыки вакансии (US-11)
+
 st.subheader("Навыки вакансии")
-if card["skills"]:
-    st.write(", ".join(card["skills"]))
-else:
-    st.caption("Навыки не указаны.")
+st.caption("Навыки вакансии (US-11). Вводятся с этапа HR-интервью и далее (D8), "
+           "но хранятся независимо от текущего статуса. Подсказки — по направлению процесса.")
+
+current_skills = card["skills"]
+suggestions = data.get_direction_skill_suggestions(process["direction_code"])
+all_skill_options = sorted({*suggestions, *current_skills}, key=str.lower)
+
+selected_skills = st.multiselect(
+    "Навыки",
+    options=all_skill_options,
+    default=current_skills,
+    accept_new_options=True,
+    key=f"skills_select_{process_id}",
+    help="Выберите из списка или введите новые. Для нескольких новых — через запятую.",
+)
+
+if st.button("Сохранить навыки", type="primary", key=f"skills_save_{process_id}"):
+    try:
+        data.set_process_skills(process_id, selected_skills)
+    except ValueError as error:
+        st.error(str(error))
+    else:
+        st.success("Навыки сохранены.")
+        st.rerun()
