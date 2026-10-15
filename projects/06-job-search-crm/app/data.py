@@ -246,6 +246,7 @@ CARD_HISTORY_SQL = """
 select h.id,
        h.stage_date,
        s.name_ru  as status,
+       s.kind     as status_kind,
        rr.name_ru as reason,
        h.note,
        h.recorded_at
@@ -253,7 +254,7 @@ select h.id,
   join statuses s on s.id = h.status_id
   left join rejection_reasons rr on rr.id = h.rejection_reason_id
  where h.process_id = %(pid)s
- order by h.stage_date asc, h.recorded_at asc, h.id asc
+ order by h.stage_date desc, h.recorded_at desc, h.id desc
 """
 
 CARD_TESTS_SQL = """
@@ -1257,3 +1258,13 @@ def get_direction_skill_suggestions(direction_code: str,
          group by sk.name
          order by lower(sk.name)
     """, {"code": direction_code}, conn=conn)]
+
+def get_statuses_by_kind(kind: str,
+                         conn: psycopg.Connection | None = None) -> list[dict]:
+    """Справочник статусов, отфильтрованный по типу: 'stage' или 'outcome'."""
+    if kind not in ("stage", "outcome"):
+        raise ValueError("kind должен быть 'stage' или 'outcome'")
+    return _fetch_all(
+        "select id, code, name_ru, stage_order from statuses "
+        "where kind = %(kind)s order by sort_order",
+        {"kind": kind}, conn=conn)
