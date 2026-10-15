@@ -40,26 +40,48 @@
 (решение D14).
 
 ```mermaid
-flowchart TD
-    START(["Процесс создан: назначено интервью или выдано тестовое"])
-    subgraph OPEN["Открытые статусы (этапы)"]
-        APPLIED["Отклик (только если первым выдано тестовое)"] --> HR["HR-интервью"]
-        HR --> TECH["Техническое собеседование"]
-        TECH --> TEAM["Знакомство с командой (необязательно)"]
-        TECH --> SEC["СБ (необязательно)"]
-        TECH --> OFFER["Оффер"]
-        TEAM --> SEC
-        TEAM --> OFFER
-        SEC --> OFFER
-    end
-    START -->|"первым выдано тестовое"| APPLIED
-    START -->|"назначено интервью (по умолчанию)"| HR
-    OFFER --> ACCEPTED["Оффер принят"]
-    OFFER --> DECLINED["Оффер отклонён мной"]
-    OPEN --> REJECTED["Отказ работодателя"]
-    OPEN --> WITHDRAWN["Мой отказ"]
-    OPEN --> NORESP["Нет ответа (вручную: работодатель замолчал)"]
+flowchart LR
+    APPLIED(["Отклик<br/>(только если первым<br/>выдано тестовое, D25)"])
+    HR(["HR-интервью"])
+    TECH(["Техническое<br/>собеседование"])
+    TEAM(["Знакомство<br/>с командой"])
+    SEC(["СБ"])
+    OFFER(["Оффер"])
+    ACC(["Оффер принят"])
+    DEC(["Оффер отклонён мной"])
+    REJ(["Отказ работодателя"])
+    WIT(["Мой отказ"])
+    NOR(["Нет ответа"])
+
+    APPLIED --> HR --> TECH
+    TECH --> TEAM --> OFFER
+    TECH --> SEC --> OFFER
+    TECH --> OFFER
+    OFFER --> ACC
+    OFFER --> DEC
+
+    HR -.-> REJ
+    TECH -.-> REJ
+    TEAM -.-> REJ
+    SEC -.-> REJ
+    OFFER -.-> REJ
+    HR -.-> WIT
+    TECH -.-> WIT
+    OFFER -.-> NOR
+
+    %% Нетипичные переходы (предупреждение, не блокировка): SR2, раздел 5
+    TECH -.-> HR
+    OFFER -.-> TECH
+    ACC -.-> OFFER
+    DEC -.-> OFFER
+
+    classDef stage fill:#e8f5e9,stroke:#2e7d32,color:#000
+    classDef outcome fill:#ffebee,stroke:#c62828,color:#000
+    class APPLIED,HR,TECH,TEAM,SEC,OFFER stage
+    class ACC,DEC,REJ,WIT,NOR outcome
 ```
+
+Типичные переходы — сплошными стрелками; нетипичные (возврат на более ранний этап, изменение после итога, отказ после любого этапа) — пунктирными: система их не блокирует, но предупреждает (D14, SR2, раздел 5).
 
 ## 4. Правила
 
