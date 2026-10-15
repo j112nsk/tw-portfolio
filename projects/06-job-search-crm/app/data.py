@@ -1268,3 +1268,40 @@ def get_statuses_by_kind(kind: str,
         "select id, code, name_ru, stage_order from statuses "
         "where kind = %(kind)s order by sort_order",
         {"kind": kind}, conn=conn)
+        
+# ---------------------------------------------------------------- правка: чтение полей для формы
+
+def get_process_field_codes(pid: int,
+                            conn: psycopg.Connection | None = None) -> dict | None:
+    """Коды справочников и значения полей процесса для формы правки (US-05).
+
+    Возвращает словарь с теми же ключами, что принимает update_process_fields
+    (direction_code, vacancy_source_code, apply_channel_code, communication_channel_code,
+    employer_type_code, employment_format_code) плюс сами значения полей.
+    None, если процесса нет.
+    """
+    return _fetch_one("""
+        select p.company_name,
+               p.vacancy_title,
+               p.vacancy_url,
+               p.salary_from,
+               p.salary_to,
+               p.contact_name,
+               p.contact_position,
+               p.note,
+               p.initiator,
+               d.code  as direction_code,
+               vs.code as vacancy_source_code,
+               ac.code as apply_channel_code,
+               cc.code as communication_channel_code,
+               et.code as employer_type_code,
+               ef.code as employment_format_code
+          from job_processes p
+          join directions d  on d.id  = p.direction_id
+          join channels   cc on cc.id = p.communication_channel_id
+          left join vacancy_sources    vs on vs.id = p.vacancy_source_id
+          left join channels           ac on ac.id = p.apply_channel_id
+          left join employer_types     et on et.id = p.employer_type_id
+          left join employment_formats ef on ef.id = p.employment_format_id
+         where p.id = %(pid)s
+    """, {"pid": pid}, conn=conn)

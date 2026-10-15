@@ -3,7 +3,8 @@
 Действия:
   * «Назначить этап» (US-04) — с подтверждением нетипичных переходов.
   * «Закрыть процесс» (US-06) — с выбором итога и причины отказа (SR9).
-Остальные действия (правка полей, удаление, тестовые, навыки) — следующий заход.
+  * «Изменить поля» (US-05) — правка атрибутов карточки; удаление процесса.
+Тестовые задания (US-07) и навыки (US-11) — следующий заход.
 """
 from datetime import date
 
@@ -25,6 +26,26 @@ if card is None:
     st.stop()
 
 process = card["process"]
+
+# Справочники — для формы правки (US-05).
+directions_ref = data.get_reference("directions")
+vacancy_sources_ref = data.get_reference("vacancy_sources")
+apply_channels_ref = data.get_apply_channels()
+all_channels_ref = data.get_reference("channels")
+employer_types_ref = data.get_reference("employer_types")
+employment_formats_ref = data.get_reference("employment_formats")
+
+
+def _index_of(rows: list[dict], code: str | None, default: int = 0) -> int:
+    """Индекс строки с заданным code; default, если code не найден или None."""
+    if code is None:
+        return default
+    for i, row in enumerate(rows):
+        if row["code"] == code:
+            return i
+    return default
+
+
 st.title(f"{process['company_name']}: {process['vacancy_title']}")
 st.markdown(f"**Статус:** {process['status']} · **Направление:** {process['direction']} · "
             f"**Кто начал:** {fmt.initiator_label(process['initiator'])}")
@@ -60,9 +81,9 @@ stages = data.get_statuses_by_kind("stage")
 outcomes = data.get_statuses_by_kind("outcome")
 rejection_reasons = data.get_reference("rejection_reasons")
 
-PENDING_STAGE   = "pending_stage_change"
-PENDING_CLOSE   = "pending_close_change"
-PENDING_WARNS   = "pending_warnings"
+PENDING_STAGE = "pending_stage_change"
+PENDING_CLOSE = "pending_close_change"
+PENDING_WARNS = "pending_warnings"
 
 
 def _clear_pending() -> None:
@@ -92,7 +113,7 @@ def _show_pending_and_confirm(save_callable) -> None:
             st.rerun()
 
 
-tab_stage, tab_close = st.tabs(["Назначить этап", "Закрыть процесс"])
+tab_stage, tab_close, tab_edit = st.tabs(["Назначить этап", "Закрыть процесс", "Изменить поля"])
 
 with tab_stage:
     if not is_open:
@@ -109,7 +130,6 @@ with tab_stage:
             warnings = data.update_process_status(
                 process_id, stage_code, stage_date, stage_note or None, conn=None)
         except ValueError as error:
-            # Возможные случаи: нетипичный переход (надо подтвердить) или иная ошибка
             if "требует подтверждения" in str(error):
                 st.session_state[PENDING_WARNS] = data.check_atypical_transition(
                     process_id, stage_code)
@@ -170,14 +190,141 @@ with tab_close:
                                confirm_atypical=True)
         _show_pending_and_confirm(_save_close)
 
+
+# ---------------------------------------------------------------- изменение полей (US-05)
+
+# Ключи формы привязаны к id процесса: при переходе на другую карточку значения сбрасываются.
+# После сохранения очищаем ключи — форма перечитывает значения из базы.
+def _edit_key(name: str) -> str:
+    return f"edit_{name}_{process_id}"
+
+
+def _clear_edit_keys() -> None:
+    prefix = "edit_"
+    suffix = f"_{process_id}"
+    for key in list(st.session_state.keys()):
+        if isinstance(key, str) and key.startswith(prefix) and key.endswith(suffix):
+            st.session_state.pop(key, None)
+
+
+with tab_edit:
+    edit = data.get_process_field_codes(process_id)
+    st.caption("Правка полей карточки (US-05). Инициатор после создания не меняется (INV-19); "
+               "при ошибке в инициаторе процесс удаляют и создают заново.")
+
+    edit_dir_name = st.selectbox(
+        "Направление", options=[d["name_ru"] for d in directions_ref],
+        index=_index_of(directions_ref, edit["direction_code"]),
+        key=_edit_key("direction"))
+    edit_dir_code = next(d["code"] for d in directions_ref if d["name_ru"] == edit_dir_name)
+
+    edit_company = st.text_input("Компания", value=edit["company_name"], key=_edit_key("company"))
+    edit_title = st.text_input("Название вакансии", value=edit["vacancy_title"], key=_edit_key("title"))
+    edit_url = st.text_input("Ссылка на вакансию", value=edit["vacancy_url"] or "", key=_edit_key("url"))
+
+    edit_source_code = None
+    edit_apply_code = None
+    if edit["initiator"] == "applicant":
+        edit_source_name = st.selectbox(
+            "Источник вакансии", options=[s["name_ru"] for s in vacancy_sources_ref],
+            index=_index_of(vacancy_sources_ref, edit["vacancy_source_code"]),
+            key=_edit_key("source"))
+        edit_source_code = next(s["code"] for s in vacancy_sources_ref if s["name_ru"] == edit_source_name)
+
+        edit_apply_name = st.selectbox(
+            "Канал отклика", options=[c["name_ru"] for c in apply_channels_ref],
+            index=_index_of(apply_channels_ref, edit["apply_channel_code"]),
+            key=_edit_key("apply"))
+        edit_apply_code = next(c["code"] for c in apply_channels_ref if c["name_ru"] == edit_apply_name)
+    else:
+        st.caption("Для входящего процесса источник вакансии и канал отклика не заполняются (D11).")
+
+    edit_comm_name = st.selectbox(
+        "Канал общения", options=[c["name_ru"] for c in all_channels_ref],
+        index=_index_of(all_channels_ref, edit["communication_channel_code"]),
+        key=_edit_key("comm"))
+    edit_comm_code = next(c["code"] for c in all_channels_ref if c["name_ru"] == edit_comm_name)
+
+    col_et, col_ef = st.columns(2)
+    with col_et:
+        et_options = ["—"] + [e["name_ru"] for e in employer_types_ref]
+        et_index = (_index_of(employer_types_ref, edit["employer_type_code"]) + 1
+                    if edit["employer_type_code"] else 0)
+        et_name = st.selectbox("Тип работодателя", options=et_options, index=et_index,
+                               key=_edit_key("et"))
+        edit_et_code = None if et_name == "—" else next(
+            e["code"] for e in employer_types_ref if e["name_ru"] == et_name)
+    with col_ef:
+        ef_options = ["—"] + [e["name_ru"] for e in employment_formats_ref]
+        ef_index = (_index_of(employment_formats_ref, edit["employment_format_code"]) + 1
+                    if edit["employment_format_code"] else 0)
+        ef_name = st.selectbox("Формат трудоустройства", options=ef_options, index=ef_index,
+                               key=_edit_key("ef"))
+        edit_ef_code = None if ef_name == "—" else next(
+            e["code"] for e in employment_formats_ref if e["name_ru"] == ef_name)
+
+    col_sf, col_st = st.columns(2)
+    with col_sf:
+        edit_sf = st.number_input("Вилка «от», ₽", min_value=0, step=1000,
+                                  value=int(edit["salary_from"] or 0),
+                                  key=_edit_key("sf"))
+    with col_st:
+        edit_st = st.number_input("Вилка «до», ₽", min_value=0, step=1000,
+                                  value=int(edit["salary_to"] or 0),
+                                  key=_edit_key("st"))
+
+    edit_cn = st.text_input("Контакт: имя", value=edit["contact_name"] or "", key=_edit_key("cn"))
+    edit_cp = st.text_input("Контакт: должность", value=edit["contact_position"] or "",
+                            key=_edit_key("cp"))
+    edit_note = st.text_area("Комментарий", value=edit["note"] or "", key=_edit_key("note"))
+
+    if st.button("Сохранить изменения", type="primary", key=_edit_key("save_btn")):
+        try:
+            data.update_process_fields(
+                process_id,
+                direction_code=edit_dir_code,
+                company_name=edit_company,
+                vacancy_title=edit_title,
+                communication_channel_code=edit_comm_code,
+                vacancy_url=edit_url.strip() or None,
+                vacancy_source_code=edit_source_code,
+                apply_channel_code=edit_apply_code,
+                employer_type_code=edit_et_code,
+                employment_format_code=edit_ef_code,
+                salary_from=int(edit_sf) if edit_sf > 0 else None,
+                salary_to=int(edit_st) if edit_st > 0 else None,
+                contact_name=edit_cn.strip() or None,
+                contact_position=edit_cp.strip() or None,
+                note=edit_note.strip() or None,
+            )
+        except ValueError as error:
+            st.error(str(error))
+        else:
+            _clear_edit_keys()
+            st.success("Поля процесса обновлены.")
+            st.rerun()
+
+    st.divider()
+    st.subheader("Удалить процесс")
+    st.caption("Действие необратимо: процесс, его история этапов, тестовые задания и связи "
+               "с навыками удаляются безвозвратно (US-05, критерий 5).")
+    confirm_delete = st.checkbox("Подтверждаю удаление", key=_edit_key("delete_confirm"))
+    if st.button("Удалить процесс", disabled=not confirm_delete,
+                 key=_edit_key("delete_btn")):
+        try:
+            data.delete_process(process_id)
+        except ValueError as error:
+            st.error(str(error))
+        else:
+            st.session_state.pop("process_id", None)
+            st.switch_page("views/processes.py")
+
+
 # ---------------------------------------------------------------- история, тесты, навыки
 
 st.subheader("История этапов")
 st.caption("Сверху — самые свежие записи. Зелёный фон — этапы, красный — итоги.")
 
-# Список «видов» статусов идёт параллельно строкам: row.name — целочисленный индекс
-# (0, 1, 2, …), по нему достаём нужный вид. Индекс оставлен обычным: pandas требует
-# уникальный индекс для Styler.apply, а status_kind уникальным не является.
 history_kinds = [row["status_kind"] for row in card["history"]]
 
 history_df = pd.DataFrame([
@@ -190,12 +337,7 @@ history_df = pd.DataFrame([
 
 
 def _highlight_history_row(row):
-    """Полупрозрачная тонировка строки: зелёная для этапов, красная для итогов.
-
-    rgba с прозрачностью работает и в тёмной, и в светлой теме Streamlit: цвет читается,
-    а системный цвет текста остаётся контрастным.
-    """
-    color = ("rgba(76, 175, 80, 0.22)"   if history_kinds[row.name] == "stage"
+    color = ("rgba(76, 175, 80, 0.22)" if history_kinds[row.name] == "stage"
              else "rgba(244, 67, 54, 0.22)")
     return [f"background-color: {color}"] * len(row)
 
