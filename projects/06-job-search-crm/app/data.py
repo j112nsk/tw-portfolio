@@ -254,7 +254,7 @@ select h.id,
   join statuses s on s.id = h.status_id
   left join rejection_reasons rr on rr.id = h.rejection_reason_id
  where h.process_id = %(pid)s
- order by h.stage_date desc, h.recorded_at desc, h.id desc
+ order by h.recorded_at desc, h.id desc
 """
 
 CARD_TESTS_SQL = """

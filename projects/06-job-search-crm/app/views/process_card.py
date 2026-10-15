@@ -323,12 +323,14 @@ with tab_edit:
 # ---------------------------------------------------------------- история, тесты, навыки
 
 st.subheader("История этапов")
-st.caption("Сверху — самые свежие записи. Зелёный фон — этапы, красный — итоги.")
+st.caption("Сверху — самые свежие записи (по дате записи, затем по id). "
+           "Зелёный фон — этапы, красный — итоги.")
 
 history_kinds = [row["status_kind"] for row in card["history"]]
 
 history_df = pd.DataFrame([
-    {"Дата этапа": fmt.format_date(row["stage_date"]),
+    {"Дата записи": fmt.format_date(row["recorded_at"]),
+     "Дата этапа": fmt.format_date(row["stage_date"]),
      "Статус": row["status"],
      "Причина отказа": row["reason"] or "",
      "Комментарий": row["note"] or ""}
