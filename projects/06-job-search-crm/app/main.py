@@ -30,6 +30,7 @@ except Exception as error:  # база недоступна, не заполне
 navigation = st.navigation([
     st.Page("views/reminders.py", title="Напоминания", icon="🔔", url_path="reminders", default=True),
     st.Page("views/processes.py", title="Процессы", icon="📋", url_path="processes"),
+    st.Page("views/process_new.py", title="Создать процесс", icon="➕", url_path="new"),
     st.Page("views/process_card.py", title="Карточка процесса", icon="🗂️", url_path="card"),
 ])
 

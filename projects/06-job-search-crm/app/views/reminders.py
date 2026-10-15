@@ -15,7 +15,12 @@ GROUPS = [
 ]
 
 today = date.today()
-st.title("Напоминания")
+col_title, col_btn = st.columns([0.8, 0.2], vertical_alignment="center")
+with col_title:
+    st.title("Напоминания")
+with col_btn:
+    if st.button("➕ Создать процесс", type="primary", use_container_width=True):
+        st.switch_page("views/process_new.py")
 st.caption(f"Сегодня {fmt.format_date(today)}. Выберите строку, чтобы открыть карточку процесса.")
 
 rows = data.get_reminders(today)

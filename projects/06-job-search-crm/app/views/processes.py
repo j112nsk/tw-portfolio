@@ -22,7 +22,12 @@ def pick(mapping: dict[str, str | None], label: str) -> str | None:
 
 
 today = date.today()
-st.title("Процессы")
+col_title, col_btn = st.columns([0.8, 0.2], vertical_alignment="center")
+with col_title:
+    st.title("Процессы")
+with col_btn:
+    if st.button("➕ Создать процесс", type="primary", use_container_width=True):
+        st.switch_page("views/process_new.py")
 
 directions = options(data.get_reference("directions"))
 statuses = options(data.get_reference("statuses"))
