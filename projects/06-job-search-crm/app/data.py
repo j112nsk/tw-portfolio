@@ -1306,3 +1306,20 @@ def get_process_field_codes(pid: int,
           left join employment_formats ef on ef.id = p.employment_format_id
          where p.id = %(pid)s
     """, {"pid": pid}, conn=conn)
+
+def get_all_profile_skills(conn: psycopg.Connection | None = None) -> dict[str, list[str]]:
+    """Профиль навыков по всем направлениям: {код направления: [навыки]}.
+
+    Используется на странице «Навыки» для краткой сводки по обоим направлениям.
+    """
+    rows = _fetch_all("""
+        select d.code as direction_code, sk.name as skill_name
+          from profile_skills pf
+          join directions d on d.id = pf.direction_id
+          join skills     sk on sk.id = pf.skill_id
+         order by d.sort_order, lower(sk.name)
+    """, conn=conn)
+    result: dict[str, list[str]] = {}
+    for row in rows:
+        result.setdefault(row["direction_code"], []).append(row["skill_name"])
+    return result
