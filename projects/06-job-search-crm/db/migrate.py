@@ -91,14 +91,13 @@ def apply_pending(conn: psycopg.Connection, migrations: list[tuple[str, Path]]) 
     for version, path in pending:
         print(f"Применяю {path.name} ...", end=" ", flush=True)
         try:
-            conn.execute(read_sql(path))
-            conn.execute(
-                "insert into schema_migrations (version, file_name, checksum) values (%s, %s, %s)",
-                (version, path.name, file_checksum(path)),
-            )
-            conn.commit()
+            with conn.transaction():
+                conn.execute(read_sql(path))
+                conn.execute(
+                    "insert into schema_migrations (version, file_name, checksum) values (%s, %s, %s)",
+                    (version, path.name, file_checksum(path)),
+                )
         except psycopg.Error as error:
-            conn.rollback()
             print("ОШИБКА")
             print(f"  {error}")
             sys.exit(1)
