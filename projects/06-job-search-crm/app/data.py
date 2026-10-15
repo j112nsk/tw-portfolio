@@ -1323,3 +1323,16 @@ def get_all_profile_skills(conn: psycopg.Connection | None = None) -> dict[str, 
     for row in rows:
         result.setdefault(row["direction_code"], []).append(row["skill_name"])
     return result
+    
+def run_analysis_query(filename: str, params: dict | None = None) -> list[dict]:
+    """Выполняет SQL-запрос из db/queries/ (02–08) и возвращает строки словарями.
+
+    Параметры запроса — именованные (%(name)s). None означает «без фильтра».
+    Приложение не кэширует результаты: данные всегда свежие.
+    """
+    conn = get_connection()
+    try:
+        columns, rows = run_file(conn, QUERIES_DIR / filename, params or {})
+    finally:
+        conn.close()
+    return [dict(zip(columns, row)) for row in rows]
