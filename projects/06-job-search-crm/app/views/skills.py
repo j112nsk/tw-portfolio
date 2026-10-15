@@ -71,7 +71,10 @@ with col_save:
             st.success(f"Профиль сохранён: {len(saved)} навыков.")
             st.rerun()
 with col_clear:
-    if st.button("Очистить профиль", key=f"skills_profile_clear_{chosen_code}"):
+    confirm_clear = st.checkbox(
+        "Подтверждаю очистку", key=f"skills_profile_clear_confirm_{chosen_code}")
+    if st.button("Очистить профиль", disabled=not confirm_clear,
+                 key=f"skills_profile_clear_{chosen_code}"):
         try:
             data.set_profile_skills(chosen_code, [])
         except ValueError as error:

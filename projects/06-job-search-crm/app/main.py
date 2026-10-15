@@ -33,6 +33,7 @@ navigation = st.navigation([
     st.Page("views/process_new.py", title="Создать процесс", icon="➕", url_path="new"),
     st.Page("views/process_card.py", title="Карточка процесса", icon="🗂️", url_path="card"),
     st.Page("views/skills.py", title="Навыки", icon="🧩", url_path="skills"),
+    st.Page("views/dashboard.py", title="Дашборд", icon="📊", url_path="dashboard"),
 ])
 
 with st.sidebar:
