@@ -113,6 +113,15 @@ start_date as (
       join statuses s on s.id = h.status_id and s.kind = 'stage'
      group by h.process_id
 ),
+closing_record as (
+    -- Последняя запись истории по recorded_at, id. Для закрытых процессов её stage_date —
+    -- дата закрытия (D21, DQ9). Для открытых не используется.
+    select distinct on (h.process_id)
+           h.process_id,
+           h.stage_date as closing_date
+      from process_status_history h
+     order by h.process_id, h.recorded_at desc, h.id desc
+),
 next_stage as (
     select distinct on (h.process_id)
            h.process_id,
@@ -136,7 +145,14 @@ select p.id,
        lh.last_record_date,
        sd.start_date,
        case when st.kind = 'stage' then ns.next_date end as next_date,
-       case when st.kind = 'stage' then ns.next_name end as next_name
+       case when st.kind = 'stage' then ns.next_name end as next_name,
+       coalesce(
+           greatest(0,
+               (case when st.kind = 'outcome' then cr.closing_date else %(today)s::date end)
+               - sd.start_date
+           ),
+           0
+       )::integer as duration_days
   from job_processes p
   join directions d  on d.id  = p.direction_id
   join statuses   st on st.id = p.status_id
@@ -145,9 +161,10 @@ select p.id,
   left join channels       cc on cc.id = p.communication_channel_id
   left join employer_types et on et.id = p.employer_type_id
   left join employment_formats ef on ef.id = p.employment_format_id
-  left join last_history lh on lh.process_id = p.id
-  left join start_date   sd on sd.process_id = p.id
-  left join next_stage   ns on ns.process_id = p.id
+  left join last_history  lh on lh.process_id = p.id
+  left join start_date    sd on sd.process_id = p.id
+  left join closing_record cr on cr.process_id = p.id
+  left join next_stage    ns on ns.process_id = p.id
  where (%(state)s::text is null
         or (%(state)s = 'open'   and st.kind = 'stage')
         or (%(state)s = 'closed' and st.kind = 'outcome'))

@@ -85,7 +85,9 @@ else:
     table = [{"Компания": r["company_name"], "Вакансия": r["vacancy_title"], "Ссылка": r["vacancy_url"],
               "Направление": fmt.direction_label(r["direction_code"]), "Статус": r["status_name"],
               "Ближайший этап": fmt.format_next_stage(r["next_date"], r["next_name"]),
-              "Последняя запись": r["last_record_date"], "Кто начал": fmt.initiator_label(r["initiator"])}
+              "Последняя запись": r["last_record_date"],
+              "Длительность, дней": r["duration_days"],
+              "Кто начал": fmt.initiator_label(r["initiator"])}
              for r in rows]
     event = st.dataframe(
         table, key="processes_table", hide_index=True, width="stretch",

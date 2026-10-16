@@ -46,9 +46,31 @@ def _index_of(rows: list[dict], code: str | None, default: int = 0) -> int:
     return default
 
 
+def _duration_days(process: dict, history: list[dict]) -> int:
+    """Длительность процесса в календарных днях (как в списке процессов).
+
+    Дата начала — минимальная stage_date среди записей-этапов (DQ7). Конец: для закрытых
+    процессов — stage_date последней записи истории (записи упорядочены по recorded_at desc,
+    id desc, поэтому history[0] — последняя); для открытых — сегодня. Результат не меньше 0:
+    для процессов с датами только в будущем — 0.
+    """
+    stage_dates = [h["stage_date"] for h in history if h["status_kind"] == "stage"]
+    if not stage_dates:
+        return 0
+    start = min(stage_dates)
+    if process["status_kind"] == "outcome" and history:
+        end = history[0]["stage_date"]
+    else:
+        end = date.today()
+    return max(0, (end - start).days)
+
+
+duration_days = _duration_days(process, card["history"])
+
 st.title(f"{process['company_name']}: {process['vacancy_title']}")
 st.markdown(f"**Статус:** {process['status']} · **Направление:** {process['direction']} · "
-            f"**Кто начал:** {fmt.initiator_label(process['initiator'])}")
+            f"**Кто начал:** {fmt.initiator_label(process['initiator'])} · "
+            f"**Длительность:** {duration_days} дн.")
 
 left, right = st.columns(2)
 with left:
