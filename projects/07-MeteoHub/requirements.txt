@@ -1,0 +1,24 @@
+# Зависимости проекта MeteoHub
+# Python 3.14 — учитываем совместимость с актуальными версиями библиотек.
+# Список дополняется по мере развития.
+
+# --- Web framework + ASGI-сервер ---
+fastapi>=0.115
+uvicorn[standard]>=0.32
+
+# --- HTTP-клиент для Open-Meteo ---
+httpx>=0.27
+
+# --- PostgreSQL ---
+psycopg[binary]>=3.2
+
+# --- Настройки и валидация ---
+pydantic>=2.9
+pydantic-settings>=2.6
+python-dotenv>=1.0
+
+# --- UI и визуализация ---
+# Streamlit 1.52 — первая версия с поддержкой Python 3.14
+streamlit>=1.52
+plotly>=5.24
+pandas>=2.2

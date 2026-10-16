@@ -1,0 +1,12 @@
+# Виртуальное окружение
+.venv/
+
+# Личные данные и секреты
+.env
+data/private/
+*.dump
+*.bak
+
+# Python
+__pycache__/
+*.pyc
