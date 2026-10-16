@@ -6,8 +6,8 @@
 from typing import Any
 
 INITIATOR_LABELS: dict[str, str] = {
-    "applicant": "Я откликнулся",
-    "employer": "Работодатель написал первым",
+    "applicant": "Я",
+    "employer": "Работодатель",
 }
 
 DIRECTION_LABELS: dict[str, str] = {

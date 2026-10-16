@@ -69,7 +69,7 @@ duration_days = _duration_days(process, card["history"])
 
 st.title(f"{process['company_name']}: {process['vacancy_title']}")
 st.markdown(f"**Статус:** {process['status']} · **Направление:** {process['direction']} · "
-            f"**Кто начал:** {fmt.initiator_label(process['initiator'])} · "
+            f"**Инициатор:** {fmt.initiator_label(process['initiator'])} · "
             f"**Длительность:** {duration_days} дн.")
 
 left, right = st.columns(2)

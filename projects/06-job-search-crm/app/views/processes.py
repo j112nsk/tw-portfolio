@@ -44,7 +44,7 @@ with st.expander("Фильтры", expanded=True):
         chosen_statuses = st.multiselect("Статус", list(statuses))
         state_label = st.radio("Состояние", list(STATE_OPTIONS), horizontal=True)
     with col2:
-        initiator_label = st.selectbox("Кто начал", list(INITIATOR_OPTIONS))
+        initiator_label = st.selectbox("Инициатор", list(INITIATOR_OPTIONS))
         source_label = st.selectbox("Источник вакансии", list(sources))
         apply_label = st.selectbox("Канал отклика", list(apply_channels))
     with col3:
@@ -87,7 +87,7 @@ else:
               "Ближайший этап": fmt.format_next_stage(r["next_date"], r["next_name"]),
               "Последняя запись": r["last_record_date"],
               "Длительность, дней": r["duration_days"],
-              "Кто начал": fmt.initiator_label(r["initiator"])}
+              "Инициатор": fmt.initiator_label(r["initiator"])}
              for r in rows]
     event = st.dataframe(
         table, key="processes_table", hide_index=True, width="stretch",
