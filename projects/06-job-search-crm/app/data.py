@@ -1336,3 +1336,14 @@ def run_analysis_query(filename: str, params: dict | None = None) -> list[dict]:
     finally:
         conn.close()
     return [dict(zip(columns, row)) for row in rows]
+
+def get_all_skills(conn: psycopg.Connection | None = None) -> list[str]:
+    """Все навыки из справочника `skills` (без привязки к направлению).
+
+    Используется в подсказках при вводе: в пустой базе справочник тоже пуст, но по мере
+    ввода навыков он пополняется (при сохранении новых навыков создаётся строка в `skills`).
+    Так подсказки становятся полезны уже с первого ввода, а не только когда накопятся
+    процессы с навыками.
+    """
+    return [row["name"] for row in _fetch_all(
+        "select name from skills order by lower(name)", conn=conn)]

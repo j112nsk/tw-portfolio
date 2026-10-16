@@ -443,7 +443,10 @@ st.caption("Навыки вакансии (US-11). Вводятся с этап�
 
 current_skills = card["skills"]
 suggestions = data.get_direction_skill_suggestions(process["direction_code"])
-all_skill_options = sorted({*suggestions, *current_skills}, key=str.lower)
+all_skills_from_ref = data.get_all_skills()
+all_skill_options = sorted(
+    {*suggestions, *current_skills, *all_skills_from_ref}, key=str.lower
+)
 
 selected_skills = st.multiselect(
     "Навыки",

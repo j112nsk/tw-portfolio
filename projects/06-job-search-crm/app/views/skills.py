@@ -45,10 +45,13 @@ chosen_code = next(d["code"] for d in directions if d["name_ru"] == chosen_name)
 
 current_skills = data.get_direction_profile_skills(chosen_code)
 
-# Собираем множество навыков, которые встречались у процессов этого направления:
-# они полезны как подсказки — и как «пробелы», которые стоит добавить в профиль.
+# Подсказки собираются из трёх источников:
+# 1) навыки, встречавшиеся у процессов этого направления (Q6, «пробелы»);
+# 2) уже выбранные в профиле;
+# 3) весь справочник skills — чтобы в пустой базе тоже было из чего выбирать.
 direction_suggestions = data.get_direction_skill_suggestions(chosen_code)
-all_options = sorted({*current_skills, *direction_suggestions}, key=str.lower)
+all_skills = data.get_all_skills()
+all_options = sorted({*current_skills, *direction_suggestions, *all_skills}, key=str.lower)
 
 selected = st.multiselect(
     "Навыки в профиле",
