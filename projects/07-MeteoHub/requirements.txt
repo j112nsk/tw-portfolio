@@ -10,7 +10,8 @@ uvicorn[standard]>=0.32
 httpx>=0.27
 
 # --- PostgreSQL ---
-psycopg[binary]>=3.2
+psycopg>=3.2
+psycopg[binary,pool]>=3.2 ; python_version < "3.14"
 
 # --- Настройки и валидация ---
 pydantic>=2.9
