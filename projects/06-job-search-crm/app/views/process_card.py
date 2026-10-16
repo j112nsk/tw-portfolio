@@ -355,7 +355,7 @@ if card["tests"]:
     st.dataframe(
         [{"Получено": row["received_on"], "Статус при получении": row["status_at_receipt"],
           "Срок сдачи": row["due_on"], "Сдано": row["submitted_on"],
-          "Результат": row["result_note"] or ""}
+          "Комментарий": row["result_note"] or ""}
          for row in card["tests"]],
         hide_index=True, width="stretch",
         column_config={"Получено": st.column_config.DateColumn(format="DD.MM.YYYY"),
@@ -405,7 +405,7 @@ if card["tests"]:
                 "Дата сдачи", value=date.today(), format="DD.MM.YYYY",
                 key=f"test_sub_date_{chosen['id']}")
             submitted_note = st.text_input(
-                "Результат (необязательно)", value=chosen["result_note"] or "",
+                "Комментарий (необязательно)", value=chosen["result_note"] or "",
                 key=f"test_sub_note_{chosen['id']}")
             if st.button("Отметить «сдано»", type="primary",
                          key=f"test_sub_btn_{chosen['id']}"):
@@ -424,7 +424,7 @@ if card["tests"]:
                 "Дата сдачи", value=chosen["submitted_on"], format="DD.MM.YYYY",
                 key=f"test_edit_date_{chosen['id']}")
             edit_result = st.text_area(
-                "Результат", value=chosen["result_note"] or "", height=80,
+                "Комментарий", value=chosen["result_note"] or "", height=80,
                 key=f"test_edit_result_{chosen['id']}")
             if st.button("Сохранить изменения", type="primary",
                          key=f"test_edit_btn_{chosen['id']}"):
