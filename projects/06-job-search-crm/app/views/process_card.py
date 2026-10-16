@@ -354,7 +354,8 @@ st.subheader("Тестовые задания")
 if card["tests"]:
     st.dataframe(
         [{"Получено": row["received_on"], "Статус при получении": row["status_at_receipt"],
-          "Срок сдачи": row["due_on"], "Сдано": row["submitted_on"], "Результат": row["result_note"]}
+          "Срок сдачи": row["due_on"], "Сдано": row["submitted_on"],
+          "Результат": row["result_note"] or ""}
          for row in card["tests"]],
         hide_index=True, width="stretch",
         column_config={"Получено": st.column_config.DateColumn(format="DD.MM.YYYY"),
@@ -418,8 +419,27 @@ if card["tests"]:
                     st.rerun()
         else:
             st.caption(f"Сдано {fmt.format_date(chosen['submitted_on'])}. "
-                       f"Изменение даты сдачи — правкой полей тестового "
-                       f"(в текущей версии только отметка и удаление).")
+                       f"Дату сдачи и результат можно поправить.")
+            edit_date = st.date_input(
+                "Дата сдачи", value=chosen["submitted_on"], format="DD.MM.YYYY",
+                key=f"test_edit_date_{chosen['id']}")
+            edit_result = st.text_area(
+                "Результат", value=chosen["result_note"] or "", height=80,
+                key=f"test_edit_result_{chosen['id']}")
+            if st.button("Сохранить изменения", type="primary",
+                         key=f"test_edit_btn_{chosen['id']}"):
+                try:
+                    data.update_test_assignment(
+                        chosen["id"],
+                        received_on=chosen["received_on"],
+                        due_on=chosen["due_on"],
+                        submitted_on=edit_date,
+                        result_note=edit_result.strip() or None)
+                except ValueError as error:
+                    st.error(str(error))
+                else:
+                    st.success("Изменения сохранены.")
+                    st.rerun()
 
     with col_delete:
         st.caption("Удаление необратимо.")
