@@ -36,6 +36,7 @@ def get_history(lat: float, lon: float, start_date: str, end_date: str) -> dict:
         "hourly": _HOURLY_VARS,
         "daily": _DAILY_VARS,
         "timezone": "auto",
+        "wind_speed_unit": "ms",  # Просим м/с вместо км/ч по умолчанию
     }
 
     try:

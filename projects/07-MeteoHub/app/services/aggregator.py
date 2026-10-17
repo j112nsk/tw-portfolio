@@ -76,15 +76,16 @@ def extract_current(met: dict) -> dict:
     first = series[0]
     details = first["data"]["instant"]["details"]
     wind_ms = details.get("wind_speed")
+    pressure_hpa = details.get("air_pressure_at_sea_level")
+    
     symbol = _symbol_code(first)
     return {
         "time": first["time"],
         "temperature": details.get("air_temperature"),
         "humidity": details.get("relative_humidity"),
-        "pressure": details.get("air_pressure_at_sea_level"),
+        "pressure_mmhg": round(pressure_hpa * 0.75006, 1) if pressure_hpa is not None else None,
         "cloud_cover": details.get("cloud_area_fraction"),
-        "wind_speed_ms": wind_ms,
-        "wind_speed_kmh": round(wind_ms * 3.6, 1) if wind_ms is not None else None,
+        "wind_speed_ms": round(wind_ms, 1) if wind_ms is not None else None,
         "wind_direction": details.get("wind_from_direction"),
         "precipitation_next_1h": _precip_mm(first),
         "symbol_code": symbol,
@@ -132,9 +133,9 @@ def extract_daily(met: dict, days: int = 7) -> list[dict]:
         wind_pairs = [(s, d) for s, d in wind_pairs if s is not None]
         if wind_pairs:
             wind_max_ms, wind_dir_at_max = max(wind_pairs, key=lambda p: p[0])
-            wind_max_kmh = round(wind_max_ms * 3.6, 1)
+            wind_max_ms = round(wind_max_ms, 1)
         else:
-            wind_max_kmh, wind_dir_at_max = None, None
+            wind_max_ms, wind_dir_at_max = None, None
 
         symbols = [s for s in (_symbol_code(e) for e in entries) if s]
         dominant_symbol = Counter(symbols).most_common(1)[0][0] if symbols else None
@@ -146,7 +147,7 @@ def extract_daily(met: dict, days: int = 7) -> list[dict]:
             "temperature_min": round(min(temperatures), 2),
             "temperature_mean": round(sum(temperatures) / len(temperatures), 2),
             "precipitation_sum": precip_sum,
-            "wind_speed_max": wind_max_kmh,
+            "wind_speed_max": wind_max_ms,
             "wind_direction_dominant": wind_dir_at_max,
             "weather_code": weather_code,
             "symbol_code": dominant_symbol,
@@ -202,3 +203,21 @@ def persist_daily(lat: float, lon: float, daily_records: list[dict]) -> None:
                     },
                 )
         conn.commit()
+
+def extract_hourly(met: dict, limit: int = 48) -> list[dict]:
+    """Извлечь почасовой ряд (температура, осадки, ветер) на ближайшие limit часов."""
+    series = met["properties"]["timeseries"]
+    result = []
+    
+    for entry in series[:limit]:
+        details = entry["data"]["instant"]["details"]
+        wind_ms = details.get("wind_speed")
+        
+        result.append({
+            "time": entry["time"],
+            "temperature_c": details.get("air_temperature"),
+            "precipitation_mm": _precip_mm(entry) or 0.0,
+            "wind_speed_ms": round(wind_ms, 1) if wind_ms is not None else None,
+            "wind_direction_deg": details.get("wind_from_direction"),
+        })
+    return result
