@@ -127,7 +127,8 @@ def get_or_fetch_met_forecast(lat: float, lon: float) -> dict:
             cur.execute(
                 """
                 select payload from weather_cache
-                where latitude = %s and longitude = %s
+                where latitude = %s::numeric(9, 6)
+                  and longitude = %s::numeric(9, 6)
                   and kind = 'met_forecast' and params_hash = %s
                   and expires_at > now()
                 """,
@@ -192,7 +193,8 @@ def get_or_fetch_history(
             cur.execute(
                 """
                 select payload from weather_cache
-                where latitude = %s and longitude = %s
+                where latitude = %s::numeric(9, 6)
+                  and longitude = %s::numeric(9, 6)
                   and kind = 'om_history' and params_hash = %s
                   and expires_at > now()
                 """,
