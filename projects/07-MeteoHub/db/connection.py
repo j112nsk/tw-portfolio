@@ -42,10 +42,15 @@ class Settings(BaseSettings):
     api_port: int = 8000
     api_base_url: str = "http://127.0.0.1:8000"
 
-    # --- Open-Meteo ---
-    open_meteo_forecast: str = "https://api.open-meteo.com/v1"
+    # --- MET Norway ---
+    met_norway_base: str = "https://api.met.no"
+    nominatim_base: str = "https://nominatim.openstreetmap.org"
+    nominatim_user_agent: str = (
+        "MeteoHub/0.1 (https://github.com/j112nsk/tw-portfolio; 12321@211.ru)"
+    )
+
+    # --- Open-Meteo Archive ---
     open_meteo_archive: str = "https://archive-api.open-meteo.com/v1"
-    open_meteo_geocoding: str = "https://geocoding-api.open-meteo.com/v1"
 
     # --- Кэш ---
     cache_ttl_geocode: int = 86_400
