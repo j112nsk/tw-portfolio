@@ -28,6 +28,7 @@ class CurrentWeather(BaseModel):
     city: str
     latitude: float
     longitude: float
+    timezone: str = Field(..., description="Часовой пояс (IANA), например Europe/Moscow")
     time: str = Field(..., description="Момент наблюдения, ISO 8601 UTC")
     temperature_c: float | None = None
     humidity_pct: float | None = None
@@ -69,6 +70,7 @@ class ForecastResponse(BaseModel):
     city: str
     latitude: float
     longitude: float
+    timezone: str
     hourly: list[HourlyForecast]
     daily: list[ForecastDay]
 
@@ -89,6 +91,7 @@ class HistoryResponse(BaseModel):
     city: str
     latitude: float
     longitude: float
+    timezone: str
     start_date: date
     end_date: date
     days: list[HistoryDay]
@@ -110,6 +113,7 @@ class AnalyticsResponse(BaseModel):
     city: str
     latitude: float
     longitude: float
+    timezone: str
     period_days: int
     warmest: AnalyticsItem | None = None
     coldest: AnalyticsItem | None = None

@@ -73,6 +73,7 @@ def current_endpoint(geo: dict = Depends(resolve_city)) -> CurrentWeather:
         city=geo["display_name"],
         latitude=geo["latitude"],
         longitude=geo["longitude"],
+        timezone=geo.get("timezone", "UTC"),
         time=cur.get("time", ""),
         temperature_c=cur.get("temperature"),
         humidity_pct=cur.get("humidity"),
@@ -108,6 +109,7 @@ def forecast_endpoint(
         city=geo["display_name"],
         latitude=geo["latitude"],
         longitude=geo["longitude"],
+        timezone=geo.get("timezone", "UTC"),
         hourly=[
             HourlyForecast(
                 time=h["time"],
@@ -185,6 +187,7 @@ def history_endpoint(
         city=geo["display_name"],
         latitude=geo["latitude"],
         longitude=geo["longitude"],
+        timezone=geo.get("timezone", "UTC"),
         start_date=start_date,
         end_date=end_date,
         days=items,

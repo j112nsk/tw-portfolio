@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 echo Запуск MeteoHub (API + UI)...
 
 start "MeteoHub API" cmd /k "run-api.bat"

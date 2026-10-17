@@ -15,8 +15,13 @@ import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 
+from timezonefinder import TimezoneFinder
+
 from db.connection import get_pool, get_settings
 from app.services.nominatim import geocode
+
+# Инициализируем один раз при старте (работает быстро после первого вызова).
+_tf = TimezoneFinder()
 from app.services.met_norway import get_forecast as met_get_forecast
 from app.services.open_meteo_archive import get_history as om_get_history
 from app.services import aggregator
@@ -70,6 +75,11 @@ def get_or_fetch_geocode(query: str) -> dict | None:
     if result is None:
         return None
 
+    # Определяем часовой пояс по координатам
+    tz_name = _tf.timezone_at(lat=result["latitude"], lng=result["longitude"])
+    if tz_name is None:
+        tz_name = "UTC"
+
     expires_at = _now() + timedelta(seconds=settings.cache_ttl_geocode)
 
     with pool.connection() as conn:
@@ -99,13 +109,14 @@ def get_or_fetch_geocode(query: str) -> dict | None:
                     "display_name": result["display_name"],
                     "country_code": result["country_code"],
                     # Nominatim не отдаёт TZ; пишем UTC-заглушку (см. aggregator).
-                    "timezone": result["timezone"] or "UTC",
+                    "timezone": tz_name,
                     "raw": json.dumps(result["raw"], ensure_ascii=False),
                     "expires_at": expires_at,
                 },
             )
         conn.commit()
 
+    result["timezone"] = tz_name
     return result
 
 

@@ -17,6 +17,7 @@ psycopg[binary,pool]>=3.2 ; python_version < "3.14"
 pydantic>=2.9
 pydantic-settings>=2.6
 python-dotenv>=1.0
+timezonefinder>=6.5
 
 # --- UI и визуализация ---
 # Streamlit 1.52 — первая версия с поддержкой Python 3.14

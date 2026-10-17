@@ -21,7 +21,7 @@ st.caption("REST API и дашборд — портфолио-кейс сист�
 # --- Боковая панель ---
 with st.sidebar:
     st.header("Настройки")
-    city = st.text_input("Населённый пункт", value="Москва")
+    city = st.text_input("Населённый пункт", value="Новосибирск")
     forecast_days = st.slider("Дней прогноза", min_value=1, max_value=9, value=7)
     st.divider()
     st.info("Источники данных:\n- MET Norway (прогноз)\n- Open-Meteo (история)\n- Nominatim (геокодинг)")
@@ -60,6 +60,7 @@ tab_current, tab_forecast, tab_analytics = st.tabs(
 # ==========================================
 with tab_current:
     st.header(f"Погода сейчас: {current_data['city']}")
+    st.caption(f"Часовой пояс: {current_data.get('timezone', 'UTC')}")
     
     # Метрики
     col1, col2, col3, col4 = st.columns(4)
@@ -88,27 +89,29 @@ with tab_forecast:
 
     if hourly:
         df_hourly = pd.DataFrame(hourly)
-        df_hourly["time"] = pd.to_datetime(df_hourly["time"])
+        tz_str = forecast_data.get("timezone", "UTC")
+        # Парсим ISO-время (оно в UTC) и переводим в локальный пояс города
+        df_hourly["time"] = pd.to_datetime(df_hourly["time"]).dt.tz_convert(tz_str)
 
         # 1. Линейный график температуры по часам
         st.subheader("Температура по часам")
         fig_temp = px.line(
             df_hourly, x="time", y="temperature_c",
-            labels={"time": "Время (UTC)", "temperature_c": "Температура (°C)"},
+            labels={"time": f"Время ({tz_str})", "temperature_c": "Температура (°C)"},
             markers=True,
         )
         fig_temp.update_layout(hovermode="x unified")
-        st.plotly_chart(fig_temp, use_container_width=True)
+        st.plotly_chart(fig_temp, width='stretch')
 
         # 2. Столбчатая диаграмма осадков
         st.subheader("Осадки по часам")
         fig_precip = px.bar(
             df_hourly, x="time", y="precipitation_mm",
-            labels={"time": "Время (UTC)", "precipitation_mm": "Осадки (мм)"},
+            labels={"time": f"Время ({tz_str})", "precipitation_mm": "Осадки (мм)"},
             color_discrete_sequence=["#3b82f6"],
         )
         fig_precip.update_layout(hovermode="x unified")
-        st.plotly_chart(fig_precip, use_container_width=True)
+        st.plotly_chart(fig_precip, width='stretch')
 
         # 3. Роза ветров
         st.subheader("Роза ветров")
@@ -134,7 +137,7 @@ with tab_forecast:
                 polar=dict(angularaxis=dict(direction="clockwise", rotation=90)),
                 showlegend=False,
             )
-            st.plotly_chart(fig_wind, use_container_width=True)
+            st.plotly_chart(fig_wind, width='stretch')
         else:
             st.info("Нет данных о ветре для построения розы.")
 
@@ -150,7 +153,7 @@ with tab_forecast:
             "Дата", "Макс. темп (°C)", "Мин. темп (°C)", 
             "Осадки (мм)", "Макс. ветер (м/с)", "Погода"
         ]
-        st.dataframe(df_daily, use_container_width=True, hide_index=True)
+        st.dataframe(df_daily, width='stretch', hide_index=True)
 
 
 # ==========================================

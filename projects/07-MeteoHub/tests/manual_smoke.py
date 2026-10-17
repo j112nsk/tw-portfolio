@@ -29,7 +29,7 @@ def timed(label, func, *args, **kwargs):
 
 
 def main() -> None:
-    city = "Москва"
+    city = "Новосибирск"
 
     print(f"1. Геокодинг: {city}")
     geo = timed("geocode (1-й)", get_or_fetch_geocode, city)

@@ -62,6 +62,7 @@ def analytics_endpoint(
         city=geo["display_name"],
         latitude=geo["latitude"],
         longitude=geo["longitude"],
+        timezone=geo.get("timezone", "UTC"),
         period_days=summary["period_days"],
         warmest=_to_item(summary["warmest"]),
         coldest=_to_item(summary["coldest"]),
