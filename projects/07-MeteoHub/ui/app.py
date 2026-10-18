@@ -17,6 +17,19 @@ API_BASE = "http://127.0.0.1:8000"
 
 st.set_page_config(page_title="MeteoHub", page_icon="🌤️", layout="wide")
 
+# Цветовая шкала по мотивам Яндекс.Погоды
+yandex_scale = [
+    (0.0, "#340c4a"),    # -40 °C: темно-фиолетовый
+    (0.125, "#191c9a"),  # -30 °C: темно-синий
+    (0.25, "#2d6fe6"),   # -20 °C: синий
+    (0.375, "#5ac2d6"),  # -10 °C: голубой
+    (0.5, "#35a36e"),    # 0 °C: зеленый
+    (0.625, "#a8c746"),  # +10 °C: желто-зеленый
+    (0.75, "#f5a623"),   # +20 °C: оранжевый
+    (0.875, "#e24b33"),  # +30 °C: красно-оранжевый
+    (1.0, "#851d29")     # +40 °C: темно-красный
+]
+
 # --- Логика Избранного ---
 FAV_FILE = "ui/favorites.json"
 
@@ -230,18 +243,6 @@ with tab_forecast:
         df_hourly = df_hourly[df_hourly["time"] < end_time].copy()
 
         if not df_hourly.empty:
-            # Цветовая шкала по мотивам Яндекс.Погоды
-            yandex_scale = [
-                (0.0, "#340c4a"),    # -40 °C: темно-фиолетовый
-                (0.125, "#191c9a"),  # -30 °C: темно-синий
-                (0.25, "#2d6fe6"),   # -20 °C: синий
-                (0.375, "#5ac2d6"),  # -10 °C: голубой
-                (0.5, "#35a36e"),    # 0 °C: зеленый
-                (0.625, "#a8c746"),  # +10 °C: желто-зеленый
-                (0.75, "#f5a623"),   # +20 °C: оранжевый
-                (0.875, "#e24b33"),  # +30 °C: красно-оранжевый
-                (1.0, "#851d29")     # +40 °C: темно-красный
-            ]
 
             # Определяем общие границы по времени для обоих графиков
             x_min = df_hourly["time"].min()
@@ -371,19 +372,18 @@ with tab_forecast:
         df_wind = df_hourly.dropna(subset=["wind_direction_deg", "wind_speed_ms"])
         if not df_wind.empty:
             import numpy as np
-            # Округляем направление до 16 румбов
-            df_wind["direction_bin"] = (df_wind["wind_direction_deg"] / 22.5).round() * 22.5
-            # Группируем: теперь считаем МАКСИМАЛЬНУЮ скорость в каждом направлении
+            # Округляем направление до 8 основных румбов (через 45 градусов)
+            df_wind["direction_bin"] = (df_wind["wind_direction_deg"] / 45).round() * 45
+            
+            # Группируем: считаем МАКСИМАЛЬНУЮ скорость в каждом направлении
             df_wind_grouped = df_wind.groupby("direction_bin").agg(
                 max_speed=("wind_speed_ms", "max")
             ).reset_index()
 
-            # Маппинг градусов в текстовые направления для оси
+            # Маппинг градусов в текстовые направления (только 8 основных)
             compass = {
-                0: "С", 22.5: "ССВ", 45: "СВ", 67.5: "ВСВ", 
-                90: "В", 112.5: "ВЮВ", 135: "ЮВ", 157.5: "ЮЮВ", 
-                180: "Ю", 202.5: "ЮЮЗ", 225: "ЮЗ", 247.5: "ЗЮЗ", 
-                270: "З", 292.5: "ЗСЗ", 315: "СЗ", 337.5: "ССЗ"
+                0: "С", 45: "СВ", 90: "В", 135: "ЮВ", 
+                180: "Ю", 225: "ЮЗ", 270: "З", 315: "СЗ"
             }
             compass_vals = list(compass.keys())
             compass_texts = list(compass.values())
@@ -396,7 +396,6 @@ with tab_forecast:
             )
             fig_wind.update_layout(
                 polar=dict(
-                    # Фиксируем шкалу радиуса от 0 до 9 м/с с шагом 3
                     radialaxis=dict(
                         range=[0, 9],
                         dtick=3,
@@ -422,61 +421,93 @@ with tab_forecast:
     st.subheader("Дневной прогноз")
     
     if daily:
+        from plotly.subplots import make_subplots
         import plotly.graph_objects as go
         
         df_daily_plot = pd.DataFrame(daily)
         # Обрезаем по ползунку из сайдбара
         df_daily_plot = df_daily_plot.head(forecast_days)
 
-        # 1. График дневной температуры (Вариант А)
-        fig_daily_temp = go.Figure()
-
-        # Закрашенная область от min до max (полупрозрачный красный/оранжевый)
-        fig_daily_temp.add_trace(go.Scatter(
-            x=df_daily_plot["date"], y=df_daily_plot["temperature_max_c"],
-            mode='lines', name='Максимум',
-            line=dict(width=0), showlegend=False,
-            hoverinfo='skip'
-        ))
-        fig_daily_temp.add_trace(go.Scatter(
-            x=df_daily_plot["date"], y=df_daily_plot["temperature_min_c"],
-            mode='lines', name='Минимум',
-            line=dict(width=0), fill='tonexty', 
-            fillcolor='rgba(239, 85, 59, 0.2)', # Полупрозрачный красный
-            showlegend=False,
-            hoverinfo='skip'
-        ))
-        
-        # Линия средней температуры (белая для темной темы, черная для светлой)
-        fig_daily_temp.add_trace(go.Scatter(
-            x=df_daily_plot["date"], y=df_daily_plot["temperature_mean_c"],
-            mode='lines+markers', name='Средняя',
-            line=dict(color='#f5a623', width=3), # Оранжевый цвет
-            marker=dict(size=8)
-        ))
-
-        fig_daily_temp.update_layout(
-            title="Температура (max / mean / min)",
-            xaxis_title="Дата",
-            yaxis_title="Температура (°C)",
-            hovermode="x unified",
-            template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
+        # Создаем общий график с двумя подграфиками (общая ось X)
+        fig_daily_combined = make_subplots(
+            rows=2, cols=1, 
+            shared_xaxes=True, 
+            vertical_spacing=0.12,
+            subplot_titles=("Температура (max / mean / min)", "Осадки за день")
         )
-        st.plotly_chart(fig_daily_temp, width='stretch')
+
+        # 1. График температуры (Вариант А: закрашенная область + линия)
+        # Закрашенная область от min до max
+        fig_daily_combined.add_trace(
+            go.Scatter(
+                x=df_daily_plot["date"], y=df_daily_plot["temperature_max_c"],
+                mode='lines', name='Максимум',
+                line=dict(width=0), showlegend=False,
+                hoverinfo='skip'
+            ),
+            row=1, col=1
+        )
+        fig_daily_combined.add_trace(
+            go.Scatter(
+                x=df_daily_plot["date"], y=df_daily_plot["temperature_min_c"],
+                mode='lines', name='Минимум',
+                line=dict(width=0), 
+                fill='tonexty', 
+                # Применяем вертикальный градиент
+                fillgradient=dict(
+                    type="vertical",
+                    colorscale=yandex_scale,
+                    start=-40,
+                    stop=40
+                ),
+                showlegend=False,
+                hoverinfo='skip'
+            ),
+            row=1, col=1
+        )
+        
+        # Линия средней температуры с градиентом
+        fig_daily_combined.add_trace(
+            go.Scatter(
+                x=df_daily_plot["date"], y=df_daily_plot["temperature_mean_c"],
+                mode='lines+markers', name='Средняя',
+                line=dict(color="black", width=3), # Сделали линию черной и толще
+                marker=dict(
+                    color=df_daily_plot["temperature_mean_c"], # Красим по температуре
+                    colorscale=yandex_scale,                  # Используем нашу шкалу
+                    cmin=-40, cmax=40,                        # Фиксируем диапазон
+                    size=10,                                  # Точки чуть крупнее
+                    line=dict(width=1, color='DarkSlateGrey'),# Обводка точек
+                    colorbar=dict(title="Температура (°C)", len=0.45, y=0.78) # Шкала справа
+                )
+            ),
+            row=1, col=1
+        )
 
         # 2. График дневных осадков
-        fig_daily_precip = px.bar(
-            df_daily_plot, x="date", y="precipitation_sum_mm",
-            labels={"date": "Дата", "precipitation_sum_mm": "Осадки (мм)"},
-            color_discrete_sequence=["#3b82f6"],
+        fig_daily_combined.add_trace(
+            go.Bar(
+                x=df_daily_plot["date"], y=df_daily_plot["precipitation_sum_mm"],
+                marker_color="#3b82f6",
+                name="Осадки"
+            ),
+            row=2, col=1
         )
-        fig_daily_precip.update_layout(
-            title="Осадки за день",
-            xaxis_title="Дата",
-            yaxis_title="Осадки (мм)",
-            template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
+
+        # Настраиваем общий вид
+        fig_daily_combined.update_layout(
+            height=600,
+            hovermode="x unified",
+            margin=dict(l=60, r=60, t=50, b=30),
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
-        st.plotly_chart(fig_daily_precip, width='stretch')
+        
+        # Включаем сетку для обоих графиков
+        fig_daily_combined.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128, 128, 128, 0.2)')
+        fig_daily_combined.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128, 128, 128, 0.2)')
+
+        st.plotly_chart(fig_daily_combined, width='stretch')
 
     # Сводная таблица по дням
     st.subheader("Сводка по дням")
