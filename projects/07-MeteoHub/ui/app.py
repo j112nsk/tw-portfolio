@@ -443,7 +443,7 @@ with tab_forecast:
                 x=df_daily_plot["date"], y=df_daily_plot["temperature_max_c"],
                 mode='lines', name='Максимум',
                 line=dict(width=0), showlegend=False,
-                hoverinfo='skip'
+                hovertemplate='Максимальная: %{y:.1f} °C<extra></extra>'
             ),
             row=1, col=1
         )
@@ -461,35 +461,86 @@ with tab_forecast:
                     stop=40
                 ),
                 showlegend=False,
-                hoverinfo='skip'
+                hovertemplate='Минимальная: %{y:.1f} °C<extra></extra>'
             ),
             row=1, col=1
         )
         
-        # Линия средней температуры с градиентом
+        # Создаем общий график с двумя подграфиками (общая ось X)
+        fig_daily_combined = make_subplots(
+            rows=2, cols=1, 
+            shared_xaxes=True, 
+            vertical_spacing=0.12,
+            subplot_titles=("Температура (max / mean / min)", "Осадки за день")
+        )
+
+        # 1. Линия "Максимум" (добавляется первой, чтобы заливка легла поверх неё)
+        fig_daily_combined.add_trace(
+            go.Scatter(
+                x=df_daily_plot["date"], y=df_daily_plot["temperature_max_c"],
+                mode='lines', name='Максимум',
+                line=dict(width=0), showlegend=False,
+                hoverinfo='skip'  # <--- СКРЫВАЕМ ПОДСКАЗКУ
+            ),
+            row=1, col=1
+        )
+
+        # 2. Линия "Минимум" + градиентная заливка между min и max
+        fig_daily_combined.add_trace(
+            go.Scatter(
+                x=df_daily_plot["date"], y=df_daily_plot["temperature_min_c"],
+                mode='lines', name='Минимум',
+                line=dict(width=0), 
+                fill='tonexty', 
+                fillgradient=dict(
+                    type="vertical",
+                    colorscale=yandex_scale,
+                    start=-40,
+                    stop=40
+                ),
+                showlegend=False,
+                hoverinfo='skip'  # <--- СКРЫВАЕМ ПОДСКАЗКУ
+            ),
+            row=1, col=1
+        )
+
+        # 3. Линия "Средняя" (собирает данные о min и max для подсказки)
         fig_daily_combined.add_trace(
             go.Scatter(
                 x=df_daily_plot["date"], y=df_daily_plot["temperature_mean_c"],
                 mode='lines+markers', name='Средняя',
-                line=dict(color="black", width=3), # Сделали линию черной и толще
+                
+                # Передаем макс и мин во встроенные данные
+                customdata=df_daily_plot[['temperature_max_c', 'temperature_min_c']].values,
+                
+                # Формируем кастомную подсказку с нужным порядком
+                hovertemplate=(
+                    'Максимальная: %{customdata[0]:.1f} °C<br>'
+                    'Средняя: %{y:.1f} °C<br>'
+                    'Минимальная: %{customdata[1]:.1f} °C'
+                    '<extra></extra>'
+                ),
+                legendrank=2,
+                line=dict(color="black", width=3),
                 marker=dict(
-                    color=df_daily_plot["temperature_mean_c"], # Красим по температуре
-                    colorscale=yandex_scale,                  # Используем нашу шкалу
-                    cmin=-40, cmax=40,                        # Фиксируем диапазон
-                    size=10,                                  # Точки чуть крупнее
-                    line=dict(width=1, color='DarkSlateGrey'),# Обводка точек
-                    colorbar=dict(title="Температура (°C)", len=0.45, y=0.78) # Шкала справа
+                    color=df_daily_plot["temperature_mean_c"],
+                    colorscale=yandex_scale,
+                    cmin=-40, cmax=40,
+                    size=10,
+                    line=dict(width=1, color='DarkSlateGrey'),
+                    colorbar=dict(title="Температура (°C)", len=0.45, y=0.78)
                 )
             ),
             row=1, col=1
         )
 
-        # 2. График дневных осадков
+        # 4. График дневных осадков
         fig_daily_combined.add_trace(
             go.Bar(
                 x=df_daily_plot["date"], y=df_daily_plot["precipitation_sum_mm"],
                 marker_color="#3b82f6",
-                name="Осадки"
+                name="Осадки",
+                legendrank=4
             ),
             row=2, col=1
         )
