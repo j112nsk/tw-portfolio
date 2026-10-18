@@ -129,7 +129,7 @@ def forecast_endpoint(
         raise HTTPException(502, f"MET Norway недоступен: {exc}")
 
     daily = extract_daily(met, days=days)
-    hourly = extract_hourly(met, limit=48)
+    hourly = extract_hourly(met, limit=216)
     return ForecastResponse(
         city=geo["display_name"],
         latitude=geo["latitude"],

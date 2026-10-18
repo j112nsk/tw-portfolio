@@ -204,7 +204,7 @@ def persist_daily(lat: float, lon: float, daily_records: list[dict]) -> None:
                 )
         conn.commit()
 
-def extract_hourly(met: dict, limit: int = 48) -> list[dict]:
+def extract_hourly(met: dict, limit: int = 216) -> list[dict]:
     """Извлечь почасовой ряд (температура, осадки, ветер) на ближайшие limit часов."""
     series = met["properties"]["timeseries"]
     result = []

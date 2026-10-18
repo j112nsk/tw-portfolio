@@ -106,7 +106,7 @@ with st.sidebar:
         else:
             st.button("✅", disabled=True, help="Уже в избранном", use_container_width=True)
 
-    forecast_days = st.slider("Дней прогноза", min_value=1, max_value=9, value=7)
+    forecast_days = st.slider("Дней прогноза", min_value=1, max_value=9, value=2)
     st.divider()
     
     # --- Блок Избранного ---
@@ -221,53 +221,149 @@ with tab_forecast:
     if hourly:
         df_hourly = pd.DataFrame(hourly)
         tz_str = forecast_data.get("timezone", "UTC")
+        
         # Парсим ISO-время (оно в UTC) и переводим в локальный пояс города
         df_hourly["time"] = pd.to_datetime(df_hourly["time"]).dt.tz_convert(tz_str)
 
-        # 1. Линейный график температуры по часам
-        st.subheader("Температура по часам")
-        # Цветовая шкала по мотивам Яндекс.Погоды
-        yandex_scale = [
-            (0.0, "#340c4a"),    # -40 °C: темно-фиолетовый
-            (0.125, "#191c9a"),  # -30 °C: темно-синий
-            (0.25, "#2d6fe6"),   # -20 °C: синий
-            (0.375, "#5ac2d6"),  # -10 °C: голубой
-            (0.5, "#35a36e"),    # 0 °C: зеленый
-            (0.625, "#a8c746"),  # +10 °C: желто-зеленый
-            (0.75, "#f5a623"),   # +20 °C: оранжевый
-            (0.875, "#e24b33"),  # +30 °C: красно-оранжевый
-            (1.0, "#851d29")     # +40 °C: темно-красный
-        ]
+        # Фильтруем почасовые данные по ползунку из сайдбара
+        end_time = df_hourly["time"].min() + pd.Timedelta(days=forecast_days)
+        df_hourly = df_hourly[df_hourly["time"] < end_time].copy()
 
-        fig_temp = px.scatter(
-            df_hourly, 
-            x="time", 
-            y="temperature_c",
-            color="temperature_c",
-            color_continuous_scale=yandex_scale, # Применяем шкалу
-            range_color=[-40, 40],               # Фиксируем диапазон
-            labels={"time": f"Время ({tz_str})", "temperature_c": "Температура (°C)"},
-        )
-        fig_temp.update_traces(
-            mode="lines+markers", # <--- Перенесли сюда
-            line=dict(color="rgba(150, 150, 150, 0.5)", width=2), # Полупрозрачная линия
-            marker=dict(size=8, line=dict(width=1, color='DarkSlateGrey')) # Точки с обводкой
-        )
-        fig_temp.update_layout(
-            hovermode="x unified",
-            coloraxis_colorbar=dict(title="Температура (°C)")
-        )
-        st.plotly_chart(fig_temp, width='stretch')
+        if not df_hourly.empty:
+            # Цветовая шкала по мотивам Яндекс.Погоды
+            yandex_scale = [
+                (0.0, "#340c4a"),    # -40 °C: темно-фиолетовый
+                (0.125, "#191c9a"),  # -30 °C: темно-синий
+                (0.25, "#2d6fe6"),   # -20 °C: синий
+                (0.375, "#5ac2d6"),  # -10 °C: голубой
+                (0.5, "#35a36e"),    # 0 °C: зеленый
+                (0.625, "#a8c746"),  # +10 °C: желто-зеленый
+                (0.75, "#f5a623"),   # +20 °C: оранжевый
+                (0.875, "#e24b33"),  # +30 °C: красно-оранжевый
+                (1.0, "#851d29")     # +40 °C: темно-красный
+            ]
 
-        # 2. Столбчатая диаграмма осадков
-        st.subheader("Осадки по часам")
-        fig_precip = px.bar(
-            df_hourly, x="time", y="precipitation_mm",
-            labels={"time": f"Время ({tz_str})", "precipitation_mm": "Осадки (мм)"},
-            color_discrete_sequence=["#3b82f6"],
-        )
-        fig_precip.update_layout(hovermode="x unified")
-        st.plotly_chart(fig_precip, width='stretch')
+            # Определяем общие границы по времени для обоих графиков
+            x_min = df_hourly["time"].min()
+            x_max = df_hourly["time"].max()
+
+            # 1. Создаем график температуры
+            fig_temp = px.scatter(
+                df_hourly, 
+                x="time", 
+                y="temperature_c",
+                color="temperature_c",
+                color_continuous_scale=yandex_scale,
+                range_color=[-40, 40],
+                labels={"time": f"Время ({tz_str})", "temperature_c": "Температура (°C)"},
+            )
+            fig_temp.update_traces(
+                mode="lines+markers",
+                line=dict(color="rgba(150, 150, 150, 0.5)", width=2),
+                marker=dict(size=8, line=dict(width=1, color='DarkSlateGrey'))
+            )
+            fig_temp.update_layout(
+                hovermode="x unified",
+                coloraxis_colorbar=dict(title="Температура (°C)"),
+                margin=dict(l=60, r=60, t=30, b=30), # Одинаковые жесткие отступы
+                xaxis=dict(range=[x_min, x_max], automargin=False)
+            )
+            fig_temp.update_yaxes(automargin=False)
+
+            # 2. Создаем график осадков
+            fig_precip = px.bar(
+                df_hourly, x="time", y="precipitation_mm",
+                labels={"time": f"Время ({tz_str})", "precipitation_mm": "Осадки (мм)"},
+                color_discrete_sequence=["#3b82f6"],
+            )
+            fig_precip.update_layout(
+                hovermode="x unified",
+                margin=dict(l=60, r=60, t=30, b=30), # Точно такие же отступы
+                xaxis=dict(range=[x_min, x_max], automargin=False),
+                bargap=0.1
+            )
+            fig_precip.update_yaxes(automargin=False)
+
+            # 3. Создаем общий график с двумя подграфиками (общая ось X)
+            from plotly.subplots import make_subplots
+            import plotly.graph_objects as go
+
+            fig_combined = make_subplots(
+                rows=2, cols=1, 
+                shared_xaxes=True, 
+                vertical_spacing=0.1,
+                subplot_titles=("Температура по часам", "Осадки по часам")
+            )
+
+            # Добавляем график температуры
+            fig_combined.add_trace(
+                go.Scatter(
+                    x=df_hourly["time"], 
+                    y=df_hourly["temperature_c"],
+                    mode="lines+markers",
+                    marker=dict(
+                        color=df_hourly["temperature_c"], 
+                        colorscale=yandex_scale, 
+                        cmin=-40, cmax=40, 
+                        size=8, 
+                        line=dict(width=1, color='DarkSlateGrey'),
+                        colorbar=dict(title="Температура (°C)", len=0.45, y=0.78) # Шкала для верхнего графика
+                    ),
+                    line=dict(color="rgba(150, 150, 150, 0.5)", width=2),
+                    name="Температура"
+                ),
+                row=1, col=1
+            )
+
+            # Добавляем график осадков
+            fig_combined.add_trace(
+                go.Bar(
+                    x=df_hourly["time"], 
+                    y=df_hourly["precipitation_mm"],
+                    marker_color="#3b82f6",
+                    name="Осадки"
+                ),
+                row=2, col=1
+            )
+
+            # 4. Фон и разделители (применяются к обоим графикам сразу через row="all")
+            unique_dates = df_hourly["time"].dt.date.unique()
+            
+            for i, date_obj in enumerate(unique_dates):
+                day_start = pd.Timestamp(date_obj).tz_localize(df_hourly["time"].dt.tz)
+                day_end = day_start + pd.Timedelta(days=1)
+
+                rect_x0 = max(day_start, x_min)
+                rect_x1 = min(day_end, x_max)
+
+                if i % 2 == 0:
+                    fig_combined.add_vrect(
+                        x0=rect_x0, x1=rect_x1,
+                        fillcolor="rgba(128, 128, 128, 0.15)",
+                        layer="below", line_width=0,
+                        row="all", col=1 # Применяем к обоим графикам
+                    )
+                
+                if i > 0:
+                    fig_combined.add_vline(
+                        x=day_start, line_width=1, line_dash="dot", line_color="rgba(128, 128, 128, 0.5)",
+                        row="all", col=1 # Применяем к обоим графикам
+                    )
+
+            # Настраиваем общий вид
+            fig_combined.update_layout(
+                height=600, 
+                hovermode="x unified",
+                margin=dict(l=60, r=60, t=50, b=30),
+                showlegend=False
+            )
+            
+            # Включаем сетку для обоих графиков
+            fig_combined.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128, 128, 128, 0.2)')
+            fig_combined.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128, 128, 128, 0.2)')
+            
+            # Отображаем единый график
+            st.plotly_chart(fig_combined, width='stretch')
 
         # 3. Роза ветров
         st.subheader("Роза ветров")
@@ -320,6 +416,67 @@ with tab_forecast:
             st.plotly_chart(fig_wind, width='stretch')
         else:
             st.info("Нет данных о ветре для построения розы.")
+
+    # --- ДНЕВНЫЕ ГРАФИКИ ---
+    st.divider()
+    st.subheader("Дневной прогноз")
+    
+    if daily:
+        import plotly.graph_objects as go
+        
+        df_daily_plot = pd.DataFrame(daily)
+        # Обрезаем по ползунку из сайдбара
+        df_daily_plot = df_daily_plot.head(forecast_days)
+
+        # 1. График дневной температуры (Вариант А)
+        fig_daily_temp = go.Figure()
+
+        # Закрашенная область от min до max (полупрозрачный красный/оранжевый)
+        fig_daily_temp.add_trace(go.Scatter(
+            x=df_daily_plot["date"], y=df_daily_plot["temperature_max_c"],
+            mode='lines', name='Максимум',
+            line=dict(width=0), showlegend=False,
+            hoverinfo='skip'
+        ))
+        fig_daily_temp.add_trace(go.Scatter(
+            x=df_daily_plot["date"], y=df_daily_plot["temperature_min_c"],
+            mode='lines', name='Минимум',
+            line=dict(width=0), fill='tonexty', 
+            fillcolor='rgba(239, 85, 59, 0.2)', # Полупрозрачный красный
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        
+        # Линия средней температуры (белая для темной темы, черная для светлой)
+        fig_daily_temp.add_trace(go.Scatter(
+            x=df_daily_plot["date"], y=df_daily_plot["temperature_mean_c"],
+            mode='lines+markers', name='Средняя',
+            line=dict(color='#f5a623', width=3), # Оранжевый цвет
+            marker=dict(size=8)
+        ))
+
+        fig_daily_temp.update_layout(
+            title="Температура (max / mean / min)",
+            xaxis_title="Дата",
+            yaxis_title="Температура (°C)",
+            hovermode="x unified",
+            template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
+        )
+        st.plotly_chart(fig_daily_temp, width='stretch')
+
+        # 2. График дневных осадков
+        fig_daily_precip = px.bar(
+            df_daily_plot, x="date", y="precipitation_sum_mm",
+            labels={"date": "Дата", "precipitation_sum_mm": "Осадки (мм)"},
+            color_discrete_sequence=["#3b82f6"],
+        )
+        fig_daily_precip.update_layout(
+            title="Осадки за день",
+            xaxis_title="Дата",
+            yaxis_title="Осадки (мм)",
+            template="plotly_dark" if st.get_option("theme.base") == "dark" else "plotly_white"
+        )
+        st.plotly_chart(fig_daily_precip, width='stretch')
 
     # Сводная таблица по дням
     st.subheader("Сводка по дням")
