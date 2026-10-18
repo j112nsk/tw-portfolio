@@ -10,10 +10,41 @@ import pandas as pd
 import plotly.express as px
 import requests
 import streamlit as st
+import json
+import os
 
 API_BASE = "http://127.0.0.1:8000"
 
 st.set_page_config(page_title="MeteoHub", page_icon="🌤️", layout="wide")
+
+# --- Логика Избранного ---
+FAV_FILE = "ui/favorites.json"
+
+def load_favorites() -> list[dict]:
+    if os.path.exists(FAV_FILE):
+        with open(FAV_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def save_favorites(favs: list[dict]) -> None:
+    with open(FAV_FILE, "w", encoding="utf-8") as f:
+        json.dump(favs, f, ensure_ascii=False, indent=2)
+
+# Инициализация состояния
+if "favorites" not in st.session_state:
+    st.session_state["favorites"] = load_favorites()
+
+# Скрываем назойливую подсказку "Press Enter..." в полях ввода
+st.markdown(
+    """
+    <style>
+    div[data-testid="InputInstructions"] {
+        display: none !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 st.title("🌤️ MeteoHub")
 st.caption("REST API и дашборд — портфолио-кейс системного аналитика и техписателя")
@@ -21,11 +52,111 @@ st.caption("REST API и дашборд — портфолио-кейс сист�
 # --- Боковая панель ---
 with st.sidebar:
     st.header("Настройки")
-    city = st.text_input("Населённый пункт", value="Новосибирск")
+    
+    if "selected_city" not in st.session_state:
+        st.session_state["selected_city"] = "Новосибирск"
+        st.session_state["search_results"] = []
+
+    with st.form(key="search_form"):
+        search_query = st.text_input("Поиск населённого пункта", placeholder="Например, Москва")
+        submit_button = st.form_submit_button("🔍 Найти")
+    
+    if submit_button and search_query:
+        with st.spinner("Поиск..."):
+            try:
+                resp = requests.get(f"{API_BASE}/geocode/search", params={"name": search_query}, timeout=15)
+                if resp.status_code == 200:
+                    results = resp.json()
+                    st.session_state["search_results"] = results
+                    if not results:
+                        st.warning("Ничего не найдено. Попробуйте изменить запрос.")
+                    else:
+                        st.session_state["selected_city"] = results[0]["city"]
+                else:
+                    st.error("Ошибка сервера при поиске.")
+            except Exception as e:
+                st.error(f"Ошибка API: {e}")
+
+    if st.session_state["search_results"]:
+        options = [r["city"] for r in st.session_state["search_results"]]
+        
+        if st.session_state["selected_city"] not in options:
+            st.session_state["selected_city"] = options[0]
+            
+        st.selectbox("Найденные варианты:", options=options, key="selected_city")
+        
+    city = st.session_state["selected_city"]
+    
+    # --- Блок добавления в избранное ---
+    col_city, col_btn = st.columns([3, 1])
+    with col_city:
+        st.info(f"**{city}**")
+    with col_btn:
+        # Проверяем, нет ли уже этого города в избранном
+        is_fav = any(f["full_name"] == city for f in st.session_state["favorites"])
+        if not is_fav:
+            if st.button("⭐", help="Добавить в избранное", use_container_width=True):
+                if len(st.session_state["favorites"]) >= 5:
+                    st.error("Максимум 5 городов!")
+                else:
+                    short_name = city.split(",")[0].strip()
+                    st.session_state["favorites"].append({"short_name": short_name, "full_name": city})
+                    save_favorites(st.session_state["favorites"])
+                    st.rerun()
+        else:
+            st.button("✅", disabled=True, help="Уже в избранном", use_container_width=True)
+
     forecast_days = st.slider("Дней прогноза", min_value=1, max_value=9, value=7)
     st.divider()
-    st.info("Источники данных:\n- MET Norway (прогноз)\n- Open-Meteo (история)\n- Nominatim (геокодинг)")
+    
+    # --- Блок Избранного ---
+    st.subheader("⭐ Избранное")
+    if not st.session_state["favorites"]:
+        st.caption("Пока пусто. Добавьте город с помощью кнопки ⭐ выше.")
+    
+    # Функция-коллбэк для переключения города
+    def switch_city(full_name: str):
+        st.session_state["selected_city"] = full_name
+        st.session_state["search_results"] = [] # Сбрасываем поиск, чтобы selectbox не мешал
 
+    for i, fav in enumerate(st.session_state["favorites"]):
+        col_city, col_edit, col_del = st.columns([4, 1.5, 1.5])
+        
+        with col_city:
+            # Передаем функцию switch_city в on_click. 
+            # Streamlit сам вызовет st.rerun() после её выполнения.
+            st.button(
+                fav["short_name"], 
+                key=f"go_{i}", 
+                help="Перейти к этому городу", 
+                type="tertiary", 
+                use_container_width=True,
+                on_click=switch_city,
+                args=(fav["full_name"],)
+            )
+                
+        with col_edit:
+            if st.button("✏️", key=f"edit_{i}", help="Переименовать", use_container_width=True):
+                st.session_state[f"editing_{i}"] = True
+                
+        with col_del:
+            if st.button("🗑️", key=f"del_{i}", help="Удалить", use_container_width=True):
+                st.session_state["favorites"].pop(i)
+                save_favorites(st.session_state["favorites"])
+                st.rerun()
+        
+        # Поле для переименования
+        if st.session_state.get(f"editing_{i}"):
+            with st.container():
+                new_name = st.text_input("Новое название", value=fav["short_name"], key=f"input_{i}")
+                if st.button("Сохранить", key=f"save_{i}"):
+                    st.session_state["favorites"][i]["short_name"] = new_name
+                    save_favorites(st.session_state["favorites"])
+                    st.session_state[f"editing_{i}"] = False
+                    st.rerun()
+                
+    st.divider()
+    st.caption("Источники: MET Norway, Open-Meteo, Nominatim")
 
 def fetch(endpoint: str, params: dict) -> dict | None:
     """Хелпер: GET-запрос к API с обработкой ошибок."""
@@ -95,12 +226,37 @@ with tab_forecast:
 
         # 1. Линейный график температуры по часам
         st.subheader("Температура по часам")
-        fig_temp = px.line(
-            df_hourly, x="time", y="temperature_c",
+        # Цветовая шкала по мотивам Яндекс.Погоды
+        yandex_scale = [
+            (0.0, "#340c4a"),    # -40 °C: темно-фиолетовый
+            (0.125, "#191c9a"),  # -30 °C: темно-синий
+            (0.25, "#2d6fe6"),   # -20 °C: синий
+            (0.375, "#5ac2d6"),  # -10 °C: голубой
+            (0.5, "#35a36e"),    # 0 °C: зеленый
+            (0.625, "#a8c746"),  # +10 °C: желто-зеленый
+            (0.75, "#f5a623"),   # +20 °C: оранжевый
+            (0.875, "#e24b33"),  # +30 °C: красно-оранжевый
+            (1.0, "#851d29")     # +40 °C: темно-красный
+        ]
+
+        fig_temp = px.scatter(
+            df_hourly, 
+            x="time", 
+            y="temperature_c",
+            color="temperature_c",
+            color_continuous_scale=yandex_scale, # Применяем шкалу
+            range_color=[-40, 40],               # Фиксируем диапазон
             labels={"time": f"Время ({tz_str})", "temperature_c": "Температура (°C)"},
-            markers=True,
         )
-        fig_temp.update_layout(hovermode="x unified")
+        fig_temp.update_traces(
+            mode="lines+markers", # <--- Перенесли сюда
+            line=dict(color="rgba(150, 150, 150, 0.5)", width=2), # Полупрозрачная линия
+            marker=dict(size=8, line=dict(width=1, color='DarkSlateGrey')) # Точки с обводкой
+        )
+        fig_temp.update_layout(
+            hovermode="x unified",
+            coloraxis_colorbar=dict(title="Температура (°C)")
+        )
         st.plotly_chart(fig_temp, width='stretch')
 
         # 2. Столбчатая диаграмма осадков
@@ -118,23 +274,47 @@ with tab_forecast:
         # Для розы ветров нужна агрегация: считаем среднюю скорость по направлениям
         df_wind = df_hourly.dropna(subset=["wind_direction_deg", "wind_speed_ms"])
         if not df_wind.empty:
-            # Округляем направление до 16 румбов (через 22.5 градуса)
             import numpy as np
+            # Округляем направление до 16 румбов
             df_wind["direction_bin"] = (df_wind["wind_direction_deg"] / 22.5).round() * 22.5
-            # Группируем: средняя скорость и количество часов
+            # Группируем: теперь считаем МАКСИМАЛЬНУЮ скорость в каждом направлении
             df_wind_grouped = df_wind.groupby("direction_bin").agg(
-                mean_speed=("wind_speed_ms", "mean"),
-                count=("wind_speed_ms", "count")
+                max_speed=("wind_speed_ms", "max")
             ).reset_index()
 
+            # Маппинг градусов в текстовые направления для оси
+            compass = {
+                0: "С", 22.5: "ССВ", 45: "СВ", 67.5: "ВСВ", 
+                90: "В", 112.5: "ВЮВ", 135: "ЮВ", 157.5: "ЮЮВ", 
+                180: "Ю", 202.5: "ЮЮЗ", 225: "ЮЗ", 247.5: "ЗЮЗ", 
+                270: "З", 292.5: "ЗСЗ", 315: "СЗ", 337.5: "ССЗ"
+            }
+            compass_vals = list(compass.keys())
+            compass_texts = list(compass.values())
+
             fig_wind = px.bar_polar(
-                df_wind_grouped, r="mean_speed", theta="direction_bin",
-                color="mean_speed", template="plotly_dark",
-                labels={"direction_bin": "Направление (°)", "mean_speed": "Скорость (м/с)"},
+                df_wind_grouped, r="max_speed", theta="direction_bin",
+                color="max_speed", template="plotly_dark",
+                labels={"direction_bin": "Направление", "max_speed": "Скорость (м/с)"},
                 color_continuous_scale="Blues",
             )
             fig_wind.update_layout(
-                polar=dict(angularaxis=dict(direction="clockwise", rotation=90)),
+                polar=dict(
+                    # Фиксируем шкалу радиуса от 0 до 9 м/с с шагом 3
+                    radialaxis=dict(
+                        range=[0, 9],
+                        dtick=3,
+                        angle=90,
+                        tickangle=90
+                    ),
+                    angularaxis=dict(
+                        direction="clockwise", 
+                        rotation=90,
+                        tickmode="array",
+                        tickvals=compass_vals,
+                        ticktext=compass_texts
+                    )
+                ),
                 showlegend=False,
             )
             st.plotly_chart(fig_wind, width='stretch')
@@ -170,17 +350,21 @@ with tab_analytics:
         with col1:
             warmest = analytics_data.get("warmest")
             if warmest:
-                st.success(f"**Самый тёплый день:** {warmest['date']} — {warmest['value']} °C ({warmest.get('weather_description', '')})")
+                # Красный для самого теплого
+                st.error(f"**Самый тёплый день:** {warmest['date']} — {warmest['value']} °C ({warmest.get('weather_description', '')})")
             
             wettest = analytics_data.get("wettest")
             if wettest:
-                st.info(f"**Самый дождливый день:** {wettest['date']} — {wettest['value']} мм ({wettest.get('weather_description', '')})")
+                # Зеленый для самого дождливого
+                st.success(f"**Самый дождливый день:** {wettest['date']} — {wettest['value']} мм ({wettest.get('weather_description', '')})")
 
         with col2:
             coldest = analytics_data.get("coldest")
             if coldest:
-                st.warning(f"**Самый холодный день:** {coldest['date']} — {coldest['value']} °C ({coldest.get('weather_description', '')})")
+                # Синий для самого холодного
+                st.info(f"**Самый холодный день:** {coldest['date']} — {coldest['value']} °C ({coldest.get('weather_description', '')})")
             
             windiest = analytics_data.get("windiest")
             if windiest:
-                st.error(f"**Самый ветреный день:** {windiest['date']} — {windiest['value']} м/с ({windiest.get('weather_description', '')})")
+                # Желтый для самого ветреного
+                st.warning(f"**Самый ветреный день:** {windiest['date']} — {windiest['value']} м/с ({windiest.get('weather_description', '')})")

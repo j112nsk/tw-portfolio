@@ -10,3 +10,5 @@ data/private/
 # Python
 __pycache__/
 *.pyc
+
+ui/favorites.json

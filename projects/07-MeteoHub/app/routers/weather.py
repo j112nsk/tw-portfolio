@@ -27,6 +27,31 @@ from app.wmo import describe
 
 router = APIRouter()
 
+@router.get(
+    "/geocode/search",
+    response_model=list[GeocodeResponse],
+    tags=["weather"],
+    summary="Поиск населённых пунктов (список)",
+    description="Возвращает до 5 вариантов для обработки дубликатов названий.",
+)
+def geocode_search_endpoint(
+    name: str = Query(..., min_length=1, description="Название населённого пункта"),
+) -> list[GeocodeResponse]:
+    from app.services.nominatim import search_cities, NominatimError
+    try:
+        results = search_cities(name, limit=5)
+    except NominatimError as exc:
+        raise HTTPException(502, f"Сервис геокодинга недоступен: {exc}")
+    
+    return [
+        GeocodeResponse(
+            city=r["display_name"],
+            latitude=r["latitude"],
+            longitude=r["longitude"],
+            country_code=r["country_code"],
+        )
+        for r in results
+    ]
 
 @router.get(
     "/geocode",
