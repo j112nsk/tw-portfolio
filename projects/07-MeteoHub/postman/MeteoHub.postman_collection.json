@@ -1,0 +1,190 @@
+{
+	"info": {
+		"_postman_id": "e5b8a1b0-8f3b-4f5a-9d1c-7b2a4f6d9e3a",
+		"name": "MeteoHub API",
+		"description": "Коллекция запросов для тестирования REST API MeteoHub. Все запросы используют переменную {{baseUrl}}.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Служебные",
+			"item": [
+				{
+					"name": "Проверка живости (Health)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/health",
+							"host": ["{{baseUrl}}"],
+							"path": ["health"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Геокодинг",
+			"item": [
+				{
+					"name": "Найти город (первый результат)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/geocode?name=Москва",
+							"host": ["{{baseUrl}}"],
+							"path": ["geocode"],
+							"query": [
+								{
+									"key": "name",
+									"value": "Москва",
+									"description": "Название населённого пункта"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Поиск городов (список)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/geocode/search?name=Москва",
+							"host": ["{{baseUrl}}"],
+							"path": ["geocode", "search"],
+							"query": [
+								{
+									"key": "name",
+									"value": "Москва",
+									"description": "Название населённого пункта (возвращает до 5 вариантов)"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Погода",
+			"item": [
+				{
+					"name": "Текущая погода",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/current?city=Новосибирск",
+							"host": ["{{baseUrl}}"],
+							"path": ["current"],
+							"query": [
+								{
+									"key": "city",
+									"value": "Новосибирск",
+									"description": "Название населённого пункта"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Прогноз по дням",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/forecast?city=Новосибирск&days=7",
+							"host": ["{{baseUrl}}"],
+							"path": ["forecast"],
+							"query": [
+								{
+									"key": "city",
+									"value": "Новосибирск",
+									"description": "Название населённого пункта"
+								},
+								{
+									"key": "days",
+									"value": "7",
+									"description": "Количество дней (1-9)"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Исторические данные",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/history?city=Москва&start_date=2025-10-01&end_date=2025-10-07",
+							"host": ["{{baseUrl}}"],
+							"path": ["history"],
+							"query": [
+								{
+									"key": "city",
+									"value": "Москва",
+									"description": "Название населённого пункта"
+								},
+								{
+									"key": "start_date",
+									"value": "2025-10-01",
+									"description": "Дата начала периода (YYYY-MM-DD)"
+								},
+								{
+									"key": "end_date",
+									"value": "2025-10-07",
+									"description": "Дата окончания периода (YYYY-MM-DD)"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Аналитика",
+			"item": [
+				{
+					"name": "Сводка за период",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/analytics?city=Новосибирск&days=7",
+							"host": ["{{baseUrl}}"],
+							"path": ["analytics"],
+							"query": [
+								{
+									"key": "city",
+									"value": "Новосибирск",
+									"description": "Название населённого пункта"
+								},
+								{
+									"key": "days",
+									"value": "7",
+									"description": "Окно анализа в днях (1-9)"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://127.0.0.1:8000",
+			"type": "string"
+		}
+	]
+}

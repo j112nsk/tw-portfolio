@@ -1,0 +1,97 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"name": "MeteoHub — Direct External APIs",
+		"description": "Коллекция прямых запросов к внешним API (MET Norway, Open-Meteo, Nominatim), которые использует MeteoHub. Не требует локального сервера и работает в облаке Postman без Desktop Agent.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Nominatim (Геокодинг)",
+			"item": [
+				{
+					"name": "Поиск координат (Москва)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "User-Agent",
+								"value": "MeteoHub-Portfolio/1.0 (https://github.com/j112nsk/tw-portfolio)",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "https://nominatim.openstreetmap.org/search?q=Moscow&format=json&limit=1&accept-language=ru",
+							"protocol": "https",
+							"host": ["nominatim", "openstreetmap", "org"],
+							"path": ["search"],
+							"query": [
+								{"key": "q", "value": "Moscow"},
+								{"key": "format", "value": "json"},
+								{"key": "limit", "value": "1"},
+								{"key": "accept-language", "value": "ru"}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "MET Norway (Прогноз)",
+			"item": [
+				{
+					"name": "Прогноз по координатам",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "User-Agent",
+								"value": "MeteoHub-Portfolio/1.0 (https://github.com/j112nsk/tw-portfolio)",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=55.75&lon=37.62",
+							"protocol": "https",
+							"host": ["api", "met", "no"],
+							"path": ["weatherapi", "locationforecast", "2.0", "compact"],
+							"query": [
+								{"key": "lat", "value": "55.75"},
+								{"key": "lon", "value": "37.62"}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Open-Meteo (История)",
+			"item": [
+				{
+					"name": "Исторические данные за неделю",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://archive-api.open-meteo.com/v1/archive?latitude=55.75&longitude=37.62&start_date=2025-10-01&end_date=2025-10-07&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto",
+							"protocol": "https",
+							"host": ["archive-api", "open-meteo", "com"],
+							"path": ["v1", "archive"],
+							"query": [
+								{"key": "latitude", "value": "55.75"},
+								{"key": "longitude", "value": "37.62"},
+								{"key": "start_date", "value": "2025-10-01"},
+								{"key": "end_date", "value": "2025-10-07"},
+								{"key": "daily", "value": "temperature_2m_max,temperature_2m_min,precipitation_sum"},
+								{"key": "timezone", "value": "auto"}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}
