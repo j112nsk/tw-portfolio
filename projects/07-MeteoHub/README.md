@@ -43,7 +43,7 @@ Python 3.14 · FastAPI · PostgreSQL · Streamlit · Plotly · Open-Meteo · MET
 | `ui/` | Streamlit-дашборд (графики, аналитика, поиск) |
 | `db/` | Скрипты подключения, миграции, SQL-запросы |
 | `docs/` | Документация (руководства, диаграммы, глоссарий) |
-| `postman/` | Коллекция для тестирования API |
+| `postman/` | Коллекции для тестирования API и файл спецификации `openapi.json` |
 | `tests/` | Скрипты ручной проверки и дымовые тесты |
 
 ## Запуск
@@ -70,4 +70,5 @@ Python 3.14 · FastAPI · PostgreSQL · Streamlit · Plotly · Open-Meteo · MET
 | [**Sequence-диаграмма**](docs/process/01-sequence.md) | Взаимодействие компонентов при запросе прогноза. |
 | [**ER-диаграмма**](docs/data-model/01-er-diagram.md) | Структура базы данных PostgreSQL. |
 | [**Реестр рисков**](docs/risks/01-risk-register.md) | Анализ рисков и способы их митигации. |
+| [**OpenAPI-спецификация**](postman/openapi.json) | Сырая спецификация API в формате JSON (OpenAPI 3.1). |
 | [**Postman-коллекции**](postman/README.md) | Инструкция по тестированию API в Postman. |
