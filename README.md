@@ -21,6 +21,7 @@
 | [**2. Инструкции для инженеров**](technical-writing/support-guides/) |
 | [**3. API документация**](technical-writing/api-documentation/)      |
 | [**4. Комплект документации Job Search CRM**](projects/06-job-search-crm/docs/user-docs/) | Руководство администратора, руководство пользователя, FAQ, глоссарий, стайлгайд, журнал изменений |
+| [**5. Комплект документации MeteoHub**](projects/07-MeteoHub/docs/user-docs/) |
 
 ## Обо мне:
 
