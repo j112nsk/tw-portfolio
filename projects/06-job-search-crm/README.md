@@ -81,3 +81,5 @@ PostgreSQL · Python · Streamlit · Mermaid / draw.io · Git
 | `db/` | Скрипты подключения и применения миграций (`connection.py`, `migrate.py`) |
 | `app/` | Приложение на Streamlit |
 | `tests/` | Дымовая проверка базы и тест-кейсы |
+
+[![Project views](https://komarev.com/ghpvc/?username=j112nsk)](https://github.com/antonkomarev/github-profile-views-counter)
