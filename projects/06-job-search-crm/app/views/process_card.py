@@ -1,10 +1,13 @@
-"""Страница «Карточка процесса»: поля, действия, история этапов, тестовые задания, навыки.
+"""Страница «Карточка процесса»: поля, действия, история этапов, навыки.
 
 Действия:
   * «Назначить этап» (US-04) — с подтверждением нетипичных переходов.
   * «Закрыть процесс» (US-06) — с выбором итога и причины отказа (SR9).
   * «Изменить поля» (US-05) — правка атрибутов карточки; удаление процесса.
-Тестовые задания (US-07) и навыки (US-11) — следующий заход.
+  * Редактирование и удаление записи истории (US-05, D33).
+
+Тестовое задание — обычный этап (D32, ADR-002): отдельного блока нет, срок и результат
+пишутся текстом в комментарии к записи этапа «Тестовое задание».
 """
 from datetime import date
 
@@ -186,7 +189,7 @@ with tab_close:
             key="card_close_reason")
         if reason_name != "—":
             reason_code = next(r["code"] for r in rejection_reasons if r["name_ru"] == reason_name)
-        st.caption("Причина обязательна, если в истории есть HR-интервью или тестовое (SR9).")
+        st.caption("Причина обязательна, если в истории есть HR-интервью, тестовое или позже (SR9).")
 
     if st.button("Закрыть процесс", type="primary", key="card_close_save"):
         try:
@@ -328,8 +331,8 @@ with tab_edit:
 
     st.divider()
     st.subheader("Удалить процесс")
-    st.caption("Действие необратимо: процесс, его история этапов, тестовые задания и связи "
-               "с навыками удаляются безвозвратно (US-05, критерий 5).")
+    st.caption("Действие необратимо: процесс, его история этапов и связи с навыками "
+               "удаляются безвозвратно (US-05, критерий 5).")
     confirm_delete = st.checkbox("Подтверждаю удаление", key=_edit_key("delete_confirm"))
     if st.button("Удалить процесс", disabled=not confirm_delete,
                  key=_edit_key("delete_btn")):
@@ -342,7 +345,7 @@ with tab_edit:
             st.switch_page("views/processes.py")
 
 
-# ---------------------------------------------------------------- история, тесты, навыки
+# ---------------------------------------------------------------- история этапов (US-05, D33)
 
 st.subheader("История этапов")
 st.caption("Сверху — самые свежие записи (по дате записи, затем по id). "
@@ -369,113 +372,98 @@ def _highlight_history_row(row):
 st.dataframe(history_df.style.apply(_highlight_history_row, axis=1),
              hide_index=True, width="stretch")
 
-# ---------------------------------------------------------------- тестовые задания (US-07)
+# Выбор записи для правки/удаления. Клик по строке с цветной таблицей несовместим
+# (Streamlit: Styler + on_select), поэтому выбираем через selectbox.
+st.markdown("**Редактировать или удалить запись**")
+st.caption("Выберите запись, измените поля и сохраните — или удалите запись с подтверждением.")
 
-st.subheader("Тестовые задания")
-
-if card["tests"]:
-    st.dataframe(
-        [{"Получено": row["received_on"], "Статус при получении": row["status_at_receipt"],
-          "Срок сдачи": row["due_on"], "Сдано": row["submitted_on"],
-          "Комментарий": row["result_note"] or ""}
-         for row in card["tests"]],
-        hide_index=True, width="stretch",
-        column_config={"Получено": st.column_config.DateColumn(format="DD.MM.YYYY"),
-                       "Срок сдачи": st.column_config.DateColumn(format="DD.MM.YYYY"),
-                       "Сдано": st.column_config.DateColumn(format="DD.MM.YYYY")})
+if not card["history"]:
+    st.info("Записей истории нет.")
 else:
-    st.caption("Тестовых заданий нет.")
+    # Понятные подписи: дата записи, статус, дата этапа
+    record_options: dict[str, dict] = {}
+    for row in card["history"]:
+        label = (f"{fmt.format_date(row['recorded_at'])} — {row['status']} "
+                 f"(этап {fmt.format_date(row['stage_date'])})")
+        record_options[label] = row
 
-with st.expander("➕ Добавить тестовое задание"):
-    new_received = st.date_input(
-        "Дата получения", value=date.today(), format="DD.MM.YYYY", key="test_new_received")
-    new_due = st.date_input(
-        "Срок сдачи (необязательно)", value=None, format="DD.MM.YYYY", key="test_new_due")
-    new_result_note = st.text_input("Комментарий", key="test_new_note")
+    chosen_label = st.selectbox("Запись истории", options=list(record_options),
+                                key=f"history_choice_{process_id}")
+    chosen = record_options[chosen_label]
 
-    if st.button("Добавить тестовое", type="primary", key="test_new_add"):
-        try:
-            data.add_test_assignment(
-                process_id, received_on=new_received, due_on=new_due,
-                result_note=new_result_note.strip() or None)
-        except ValueError as error:
-            st.error(str(error))
-        else:
-            for key in ("test_new_received", "test_new_due", "test_new_note"):
-                st.session_state.pop(key, None)
-            st.success("Тестовое задание добавлено.")
-            st.rerun()
+    # Форма редактирования (раскрыта по умолчанию — самое частое действие)
+    with st.expander("Редактировать запись", expanded=False):
+        # Статус: этапы + итоги. Показываем отдельно группы, чтобы не путать.
+        status_options: list[tuple[str, str]] = (
+            [(s["code"], s["name_ru"] + " (этап)") for s in stages]
+            + [(o["code"], o["name_ru"] + " (итог)") for o in outcomes]
+        )
+        status_codes = [code for code, _ in status_options]
+        status_labels = [label for _, label in status_options]
+        current_index = status_codes.index(chosen["status_code"]) if chosen["status_code"] in status_codes else 0
 
-if card["tests"]:
-    st.markdown("**Изменить существующее тестовое задание**")
-    test_options: dict[str, dict] = {}
-    for row in card["tests"]:
-        label = f"получено {fmt.format_date(row['received_on'])}"
-        label += f", срок {fmt.format_date(row['due_on'])}" if row["due_on"] else ", без срока"
-        label += " — сдано" if row["submitted_on"] else " — не сдано"
-        test_options[label] = row
+        new_status_label = st.selectbox(
+            "Статус", options=status_labels, index=current_index,
+            key=f"history_status_{chosen['id']}")
+        new_status_code = status_codes[status_labels.index(new_status_label)]
 
-    chosen_label = st.selectbox("Выберите тестовое задание",
-                                options=list(test_options), key="test_edit_choice")
-    chosen = test_options[chosen_label]
+        new_stage_date = st.date_input(
+            "Дата этапа", value=chosen["stage_date"], format="DD.MM.YYYY",
+            key=f"history_date_{chosen['id']}")
+        new_note = st.text_input(
+            "Комментарий", value=chosen["note"] or "",
+            key=f"history_note_{chosen['id']}",
+            help="Для этапа «Тестовое задание» сюда можно записать срок сдачи и результат.")
 
-    col_submit, col_delete = st.columns(2)
+        # Причина отказа — только если новый статус — один из отказов (INV-08)
+        new_reason_code: str | None = None
+        if new_status_code in ("REJECTED_BY_EMPLOYER", "WITHDRAWN_BY_ME"):
+            reason_options = ["—"] + [r["name_ru"] for r in rejection_reasons]
+            current_reason_name = next(
+                (r["name_ru"] for r in rejection_reasons if r["code"] == chosen["reason_code"]), "—")
+            current_reason_index = reason_options.index(current_reason_name) if current_reason_name in reason_options else 0
+            new_reason_name = st.selectbox(
+                "Причина отказа", options=reason_options, index=current_reason_index,
+                key=f"history_reason_{chosen['id']}")
+            if new_reason_name != "—":
+                new_reason_code = next(r["code"] for r in rejection_reasons if r["name_ru"] == new_reason_name)
+            st.caption("Причина обязательна для отказа, если в истории есть HR-интервью, "
+                       "тестовое или позже (SR9).")
 
-    with col_submit:
-        if chosen["submitted_on"] is None:
-            submitted_date = st.date_input(
-                "Дата сдачи", value=date.today(), format="DD.MM.YYYY",
-                key=f"test_sub_date_{chosen['id']}")
-            submitted_note = st.text_input(
-                "Комментарий (необязательно)", value=chosen["result_note"] or "",
-                key=f"test_sub_note_{chosen['id']}")
-            if st.button("Отметить «сдано»", type="primary",
-                         key=f"test_sub_btn_{chosen['id']}"):
-                try:
-                    data.mark_test_submitted(chosen["id"], submitted_on=submitted_date,
-                                             result_note=submitted_note.strip() or None)
-                except ValueError as error:
-                    st.error(str(error))
-                else:
-                    st.success("Отметка о сдаче сохранена.")
-                    st.rerun()
-        else:
-            st.caption(f"Сдано {fmt.format_date(chosen['submitted_on'])}. "
-                       f"Дату сдачи и результат можно поправить.")
-            edit_date = st.date_input(
-                "Дата сдачи", value=chosen["submitted_on"], format="DD.MM.YYYY",
-                key=f"test_edit_date_{chosen['id']}")
-            edit_result = st.text_area(
-                "Комментарий", value=chosen["result_note"] or "", height=80,
-                key=f"test_edit_result_{chosen['id']}")
-            if st.button("Сохранить изменения", type="primary",
-                         key=f"test_edit_btn_{chosen['id']}"):
-                try:
-                    data.update_test_assignment(
-                        chosen["id"],
-                        received_on=chosen["received_on"],
-                        due_on=chosen["due_on"],
-                        submitted_on=edit_date,
-                        result_note=edit_result.strip() or None)
-                except ValueError as error:
-                    st.error(str(error))
-                else:
-                    st.success("Изменения сохранены.")
-                    st.rerun()
+        st.caption("Если изменяется статус не у последней записи, текущий статус процесса "
+                   "не изменится (порядок записей: дата записи, затем id).")
 
-    with col_delete:
-        st.caption("Удаление необратимо.")
-        confirm_delete_test = st.checkbox("Подтверждаю удаление тестового задания",
-                                          key=f"test_del_confirm_{chosen['id']}")
-        if st.button("Удалить тестовое", disabled=not confirm_delete_test,
-                     key=f"test_del_btn_{chosen['id']}"):
+        if st.button("Сохранить запись", type="primary",
+                     key=f"history_save_{chosen['id']}"):
             try:
-                data.delete_test_assignment(chosen["id"])
+                data.update_history_record(
+                    chosen["id"],
+                    status_code=new_status_code,
+                    stage_date=new_stage_date,
+                    note=new_note.strip() or None,
+                    rejection_reason_code=new_reason_code,
+                )
             except ValueError as error:
                 st.error(str(error))
             else:
-                st.success("Тестовое задание удалено.")
+                st.success("Запись обновлена.")
                 st.rerun()
+
+    # Удаление записи
+    with st.expander("Удалить запись", expanded=False):
+        st.caption("Удаление необратимо. Единственную запись истории удалить нельзя (INV-18).")
+        confirm = st.checkbox("Подтверждаю удаление записи",
+                              key=f"history_del_confirm_{chosen['id']}")
+        if st.button("Удалить запись", disabled=not confirm,
+                     key=f"history_del_{chosen['id']}"):
+            try:
+                data.delete_history_record(chosen["id"])
+            except Exception as error:                          # noqa: BLE001
+                st.error(str(error))
+            else:
+                st.success("Запись удалена.")
+                st.rerun()
+
 
 # ---------------------------------------------------------------- навыки вакансии (US-11)
 

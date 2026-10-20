@@ -5,6 +5,9 @@
 (US-01, критерий 2): направление и канал общения — из последнего процесса, источник
 и канал отклика — из последнего процесса, начатого откликом.
 
+D32: тестовое задание — обычный этап (TEST_ASSIGNMENT); отдельного поля «срок сдачи»
+нет, срок пишется в комментарий к записи истории.
+
 Все данные при ошибке сохраняются в виджетах: Streamlit хранит их в session_state
 по стабильному ключу, поэтому пользователю не нужно вводить заново.
 """
@@ -75,16 +78,21 @@ stage_name = st.selectbox(
     index=index_of(stages, "HR_INTERVIEW"), key="np_stage")
 stage_code = next(s["code"] for s in stages if s["name_ru"] == stage_name)
 
-stage_date = st.date_input(
-    "Дата этапа (или дата выдачи тестового)", value=date.today(),
-    format="DD.MM.YYYY", key="np_stage_date")
+# Подпись даты зависит от выбранного этапа
+date_label = "Дата этапа"
+if stage_code == "TEST_ASSIGNMENT":
+    date_label = "Дата выдачи тестового задания"
+elif stage_code == "OFFER":
+    date_label = "Срок ответа на оффер"
 
-test_due_on: date | None = None
-if stage_code == "APPLIED":
-    st.caption("Этап «Отклик» используется, когда первым выдано тестовое задание "
-               "(D25). При сохранении тестовое будет создано автоматически.")
-    test_due_on = st.date_input(
-        "Срок сдачи тестового", value=None, format="DD.MM.YYYY", key="np_test_due")
+stage_date = st.date_input(
+    date_label, value=date.today(), format="DD.MM.YYYY", key="np_stage_date")
+
+if stage_code == "TEST_ASSIGNMENT":
+    st.caption("Тестовое задание — обычный этап (D32). Срок сдачи можно записать "
+               "в комментарий к процессу или позже в карточке.")
+
+# test_due_on больше не нужен — тестовое задание не создаёт отдельной сущности
 
 
 # ---------------------------------------------------------------- каналы
@@ -169,7 +177,6 @@ if st.button("Сохранить", type="primary", key="np_save"):
             contact_name=contact_name.strip() or None,
             contact_position=contact_position.strip() or None,
             note=note.strip() or None,
-            test_due_on=test_due_on,
         )
     except ValueError as error:
         st.error(str(error))

@@ -3,9 +3,10 @@
 -- Вопрос Q4 (US-08, US-09): что запланировано на сегодня–завтра и на ближайшие 7 дней, и какие
 -- открытые процессы остались без запланированного этапа.
 -- Правила: SR13 (запланированный этап), D17, D24, D27. Запрос только читает данные (NFR-07).
+-- D32: сроки сдачи тестовых больше не напоминаются — тестовое это обычный этап.
 -- Параметр: today (текущая дата; в приложении это date.today()).
 -- Группы: today_tomorrow (сегодня и завтра), next_7_days (от сегодня + 2 до сегодня + 7),
---         no_planned_stage (у открытого процесса нет этапа и несданного тестового с датой не раньше сегодняшней).
+--         no_planned_stage (у открытого процесса нет этапа с датой не раньше сегодняшней).
 -- =====================================================================
 
 select q.*
@@ -18,20 +19,13 @@ select q.*
               join directions d on d.id = p.direction_id
         ),
         events as (
-            -- запланированные события: этапы и сроки сдачи несданных тестовых
+            -- запланированные этапы (тестовое — тоже этап, D32)
             select o.id as process_id, h.stage_date as event_date,
                    'stage' as event_kind, s.name_ru as event_name
               from open_proc o
               join process_status_history h on h.process_id = o.id
               join statuses s on s.id = h.status_id and s.kind = 'stage'
              where h.stage_date >= %(today)s::date
-            union all
-            select o.id, t.due_on, 'test_due', 'Срок сдачи тестового задания'
-              from open_proc o
-              join test_assignments t on t.process_id = o.id
-             where t.submitted_on is null
-               and t.due_on is not null
-               and t.due_on >= %(today)s::date
         )
         select case when e.event_date <= %(today)s::date + 1
                     then 'today_tomorrow' else 'next_7_days' end as group_code,

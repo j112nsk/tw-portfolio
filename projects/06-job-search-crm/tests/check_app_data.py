@@ -43,8 +43,8 @@ def run_checks(specs, today: date) -> None:
     info = data.database_info()
     check("База распознана как демонстрационная", info["is_demo"] and info["name"] == DEMO_DATABASE)
     statuses = data.get_reference("statuses")
-    check("Справочник статусов: 11 значений в порядке вывода",
-          len(statuses) == 11 and statuses[0]["code"] == "APPLIED" and statuses[-1]["code"] == "NO_RESPONSE")
+    check("Справочник статусов: 11 значений, первый — HR_INTERVIEW, последний — NO_RESPONSE",
+          len(statuses) == 11 and statuses[0]["code"] == "HR_INTERVIEW" and statuses[-1]["code"] == "NO_RESPONSE")
     check("Каналов отклика 3 (телефон не входит)", len(data.get_apply_channels()) == 3)
 
     print("\n2. Список процессов и фильтры")
@@ -113,8 +113,6 @@ def run_checks(specs, today: date) -> None:
             problems.append(f"{spec.company}: записей истории {len(card['history'])} из {len(spec.history)}")
         elif sorted(d for _, d in history) != [d for _, d in expected_history]:
             problems.append(f"{spec.company}: даты истории не совпали")
-        if len(card["tests"]) != len(spec.tests):
-            problems.append(f"{spec.company}: тестовых заданий {len(card['tests'])} из {len(spec.tests)}")
         if sorted(card["skills"], key=str.lower) != sorted(spec.skills, key=str.lower):
             problems.append(f"{spec.company}: набор навыков не совпал")
     check(f"У всех {len(everything)} процессов история, тестовые задания и навыки совпадают с эталоном",

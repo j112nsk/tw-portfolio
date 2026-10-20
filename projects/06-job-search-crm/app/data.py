@@ -263,8 +263,10 @@ select p.id,
 CARD_HISTORY_SQL = """
 select h.id,
        h.stage_date,
+       s.code     as status_code,
        s.name_ru  as status,
        s.kind     as status_kind,
+       rr.code    as reason_code,
        rr.name_ru as reason,
        h.note,
        h.recorded_at
@@ -273,19 +275,6 @@ select h.id,
   left join rejection_reasons rr on rr.id = h.rejection_reason_id
  where h.process_id = %(pid)s
  order by h.recorded_at desc, h.id desc
-"""
-
-CARD_TESTS_SQL = """
-select t.id,
-       t.received_on,
-       t.due_on,
-       t.submitted_on,
-       t.result_note,
-       s.name_ru as status_at_receipt
-  from test_assignments t
-  join statuses s on s.id = t.status_id
- where t.process_id = %(pid)s
- order by t.received_on asc, t.id asc
 """
 
 CARD_SKILLS_SQL = """
@@ -303,9 +292,8 @@ def get_process_card(process_id: int) -> dict | None:
     if process is None:
         return None
     history = _fetch_all(CARD_HISTORY_SQL, {"pid": process_id})
-    tests = _fetch_all(CARD_TESTS_SQL, {"pid": process_id})
     skills = [row["name"] for row in _fetch_all(CARD_SKILLS_SQL, {"pid": process_id})]
-    return {"process": process, "history": history, "tests": tests, "skills": skills}
+    return {"process": process, "history": history, "skills": skills}
 
 # ---------------------------------------------------------------- запись: создание процесса
 
@@ -335,14 +323,6 @@ values (%(pid)s,
         (select id from statuses where code = %(status_code)s),
         %(stage_date)s)
 """
-
-INSERT_FIRST_TEST_SQL = """
-insert into test_assignments (process_id, status_id, received_on, due_on)
-values (%(pid)s,
-        (select id from statuses where code = %(status_code)s),
-        %(received_on)s, %(due_on)s)
-"""
-
 
 def get_initial_stages() -> list[dict]:
     """Этапы для формы создания процесса (SR1: только kind = 'stage')."""
@@ -465,7 +445,6 @@ def _validate_create_process(
     salary_from: int | None,
     salary_to: int | None,
     initial_status_code: str,
-    test_due_on: date | None,
 ) -> None:
     if initiator not in ("applicant", "employer"):
         raise ValueError("Инициатор должен быть applicant или employer (INV-01).")
@@ -477,10 +456,6 @@ def _validate_create_process(
         communication_channel_code=communication_channel_code,
         salary_from=salary_from, salary_to=salary_to,
     )
-
-    if initial_status_code != "APPLIED" and test_due_on is not None:
-        raise ValueError("Срок сдачи тестового задания можно указать только "
-                         "при начальном статусе «Отклик» (US-01, критерий 5).")
 
 
 def create_process(
@@ -502,20 +477,21 @@ def create_process(
     contact_name: str | None = None,
     contact_position: str | None = None,
     note: str | None = None,
-    test_due_on: date | None = None,
     conn: psycopg.Connection | None = None,
 ) -> int:
-    """Создаёт процесс (US-01): job_processes + первая запись истории (+ тестовое при «Отклике»).
+    """Создаёт процесс (US-01): job_processes + первая запись истории.
 
     Всё в одной транзакции (NFR-03). Возвращает id созданного процесса.
     Начальный статус — этап; создать процесс сразу с итогом нельзя (SR1).
+    D32: отдельной сущности тестового задания нет — если первым идёт тестовое,
+    начальный статус — TEST_ASSIGNMENT.
     """
     _validate_create_process(
         initiator=initiator, company_name=company_name, vacancy_title=vacancy_title,
         vacancy_url=vacancy_url, vacancy_source_code=vacancy_source_code,
         apply_channel_code=apply_channel_code, communication_channel_code=communication_channel_code,
         salary_from=salary_from, salary_to=salary_to,
-        initial_status_code=initial_status_code, test_due_on=test_due_on,
+        initial_status_code=initial_status_code,
     )
 
     own = conn is None
@@ -565,14 +541,6 @@ def create_process(
                 "status_code": initial_status_code,
                 "stage_date": initial_stage_date,
             })
-
-            if initial_status_code == "APPLIED":
-                conn.execute(INSERT_FIRST_TEST_SQL, {
-                    "pid": pid,
-                    "status_code": initial_status_code,
-                    "received_on": initial_stage_date,
-                    "due_on": test_due_on,
-                })
 
         return pid
     finally:
@@ -700,15 +668,19 @@ def _insert_status_record(pid: int, status_code: str, stage_date: date,
 
 
 def _qualifies_for_rejection_reason(pid: int, conn: psycopg.Connection) -> bool:
-    """SR9: причина обязательна, если в истории есть этап воронки или тестовое задание."""
+    """SR9: причина обязательна, если в истории есть HR, тестовое или позже.
+
+    D32: после перехода к тестовому-этапу «HR, тестовое или позже» = «есть хоть один этап»:
+    если процесс дошёл до любого этапа, он уже прошёл первичный фильтр.
+    """
     row = _fetch_one("""
-        select
-            exists (select 1 from process_status_history h
-                      join statuses s on s.id = h.status_id
-                     where h.process_id = %(pid)s and s.in_funnel)            as has_funnel_stage,
-            exists (select 1 from test_assignments where process_id = %(pid)s) as has_tests
+        select exists (
+            select 1 from process_status_history h
+              join statuses s on s.id = h.status_id
+             where h.process_id = %(pid)s and s.kind = 'stage'
+        ) as has_stage
     """, {"pid": pid}, conn=conn)
-    return bool(row and (row["has_funnel_stage"] or row["has_tests"]))
+    return bool(row and row["has_stage"])
 
 
 def update_process_status(pid: int, status_code: str, stage_date: date,
@@ -890,28 +862,68 @@ def update_process_fields(
 def update_history_record(
     history_id: int,
     *,
+    status_code: str,
     stage_date: date,
     note: str | None = None,
+    rejection_reason_code: str | None = None,
     conn: psycopg.Connection | None = None,
 ) -> None:
-    """Правка даты и комментария записи истории (US-05, D22).
+    """Правка записи истории (US-05, D33): статус, дата этапа, комментарий, причина отказа.
 
-    Прежнее значение не сохраняется. Порядок записей триггером не пересчитывается:
-    он опирается на recorded_at, а не на stage_date.
+    Если правится последняя запись процесса, текущий статус процесса пересчитает триггер
+    (`process_status_history_sync_status`). Если не последняя — текущий статус процесса не
+    изменится (порядок записей: `recorded_at`, затем `id`, при правке не меняется).
+
+    Проверки:
+      * статус существует в справочнике;
+      * причина отказа допустима только для итогов REJECTED_BY_EMPLOYER / WITHDRAWN_BY_ME
+        (INV-08);
+      * при смене на отказ причина обязательна, если в истории процесса есть этап (SR9).
+
+    Нетипичные переходы при правке не проверяются автоматически: пользователь осознанно
+    редактирует существующую запись. Предупреждение о нетипичном переходе относится к форме
+    «Назначить этап» (US-04).
     """
     own = conn is None
     if own:
         conn = get_connection()
     try:
-        row = _fetch_one("select 1 from process_status_history where id = %(id)s",
-                         {"id": history_id}, conn=conn)
-        if row is None:
+        record = _fetch_one(
+            "select process_id from process_status_history where id = %(id)s",
+            {"id": history_id}, conn=conn)
+        if record is None:
             raise ValueError(f"Запись истории id={history_id} не найдена.")
+        pid = record["process_id"]
+
+        status = get_status_info(status_code, conn=conn)
+        if status is None:
+            raise ValueError(f"Статус «{status_code}» не найден в справочнике.")
+
+        if rejection_reason_code:
+            if status["code"] not in REJECTION_OUTCOMES:
+                raise ValueError(
+                    "Причина отказа допустима только для «Отказ работодателя» и «Мой отказ» (INV-08).")
+            reason = _fetch_one(
+                "select code from rejection_reasons where code = %(code)s",
+                {"code": rejection_reason_code}, conn=conn)
+            if reason is None:
+                raise ValueError(f"Причина отказа «{rejection_reason_code}» не найдена.")
+
+        if status["code"] in REJECTION_OUTCOMES:
+            if _qualifies_for_rejection_reason(pid, conn) and not rejection_reason_code:
+                raise ValueError(
+                    "Для отказа после интервью или тестового задания укажите причину (SR9).")
+
         with conn.transaction():
             conn.execute(
-                "update process_status_history set stage_date = %(d)s, note = %(note)s "
-                "where id = %(id)s",
-                {"id": history_id, "d": stage_date, "note": note or None})
+                "update process_status_history "
+                "   set status_id = (select id from statuses where code = %(sc)s), "
+                "       stage_date = %(d)s, "
+                "       note = %(note)s, "
+                "       rejection_reason_id = (select id from rejection_reasons where code = %(rc)s) "
+                " where id = %(id)s",
+                {"id": history_id, "sc": status_code, "d": stage_date,
+                 "note": note or None, "rc": rejection_reason_code})
     finally:
         if own:
             conn.close()
@@ -956,173 +968,6 @@ def delete_process(pid: int, conn: psycopg.Connection | None = None) -> None:
     finally:
         if own:
             conn.close()
-
-# ---------------------------------------------------------------- запись: тестовые задания (US-07)
-
-INSERT_TEST_ASSIGNMENT_SQL = """
-insert into test_assignments
-    (process_id, status_id, received_on, due_on, submitted_on, result_note)
-values
-    (%(pid)s,
-     (select status_id from job_processes where id = %(pid)s),
-     %(received_on)s, %(due_on)s, %(submitted_on)s, %(result_note)s)
-returning id
-"""
-
-UPDATE_TEST_ASSIGNMENT_SQL = """
-update test_assignments
-   set received_on = %(received_on)s,
-       due_on = %(due_on)s,
-       submitted_on = %(submitted_on)s,
-       result_note = %(result_note)s
- where id = %(test_id)s
-"""
-
-
-def _validate_test_dates(received_on: date, due_on: date | None, submitted_on: date | None) -> None:
-    """INV-13: срок сдачи и дата сдачи не раньше даты получения."""
-    if due_on is not None and due_on < received_on:
-        raise ValueError("Срок сдачи тестового задания не может быть раньше даты получения (INV-13).")
-    if submitted_on is not None and submitted_on < received_on:
-        raise ValueError("Дата сдачи тестового задания не может быть раньше даты получения (INV-13).")
-
-
-def add_test_assignment(
-    pid: int,
-    *,
-    received_on: date,
-    due_on: date | None = None,
-    result_note: str | None = None,
-    conn: psycopg.Connection | None = None,
-) -> int:
-    """Добавляет тестовое задание процессу (US-07, критерий 1).
-
-    status_id = текущий статус процесса на момент добавления (SR7, не пересчитывается).
-    Возвращает id созданной записи.
-    """
-    _validate_test_dates(received_on, due_on, None)
-
-    own = conn is None
-    if own:
-        conn = get_connection()
-    try:
-        process = _fetch_one("select status_id from job_processes where id = %(pid)s",
-                             {"pid": pid}, conn=conn)
-        if process is None:
-            raise ValueError(f"Процесс id={pid} не найден.")
-
-        with conn.transaction():
-            test_id = conn.execute(INSERT_TEST_ASSIGNMENT_SQL, {
-                "pid": pid,
-                "received_on": received_on,
-                "due_on": due_on,
-                "submitted_on": None,
-                "result_note": result_note or None,
-            }).fetchone()[0]
-        return test_id
-    finally:
-        if own:
-            conn.close()
-
-
-def update_test_assignment(
-    test_id: int,
-    *,
-    received_on: date,
-    due_on: date | None = None,
-    submitted_on: date | None = None,
-    result_note: str | None = None,
-    conn: psycopg.Connection | None = None,
-) -> None:
-    """Правка тестового задания: все поля (US-07, критерий 4)."""
-    _validate_test_dates(received_on, due_on, submitted_on)
-
-    own = conn is None
-    if own:
-        conn = get_connection()
-    try:
-        row = _fetch_one("select 1 from test_assignments where id = %(id)s",
-                         {"id": test_id}, conn=conn)
-        if row is None:
-            raise ValueError(f"Тестовое задание id={test_id} не найдено.")
-
-        with conn.transaction():
-            conn.execute(UPDATE_TEST_ASSIGNMENT_SQL, {
-                "test_id": test_id,
-                "received_on": received_on,
-                "due_on": due_on,
-                "submitted_on": submitted_on,
-                "result_note": result_note or None,
-            })
-    finally:
-        if own:
-            conn.close()
-
-
-def mark_test_submitted(
-    test_id: int,
-    *,
-    submitted_on: date,
-    result_note: str | None = None,
-    conn: psycopg.Connection | None = None,
-) -> None:
-    """Отметка «сдано» + результат (US-07, критерий 2).
-
-    Дата сдачи не раньше даты получения (INV-13).
-    """
-    own = conn is None
-    if own:
-        conn = get_connection()
-    try:
-        row = _fetch_one("select received_on from test_assignments where id = %(id)s",
-                         {"id": test_id}, conn=conn)
-        if row is None:
-            raise ValueError(f"Тестовое задание id={test_id} не найдено.")
-        _validate_test_dates(row["received_on"], None, submitted_on)
-
-        with conn.transaction():
-            conn.execute(
-                "update test_assignments set submitted_on = %(submitted_on)s, "
-                "result_note = coalesce(%(result_note)s, result_note) where id = %(id)s",
-                {"id": test_id, "submitted_on": submitted_on,
-                 "result_note": result_note or None})
-    finally:
-        if own:
-            conn.close()
-
-
-def delete_test_assignment(test_id: int,
-                           conn: psycopg.Connection | None = None) -> None:
-    """Удаляет тестовое задание (US-07, критерий 4)."""
-    own = conn is None
-    if own:
-        conn = get_connection()
-    try:
-        row = _fetch_one("select 1 from test_assignments where id = %(id)s",
-                         {"id": test_id}, conn=conn)
-        if row is None:
-            raise ValueError(f"Тестовое задание id={test_id} не найдено.")
-        with conn.transaction():
-            conn.execute("delete from test_assignments where id = %(id)s",
-                         {"id": test_id})
-    finally:
-        if own:
-            conn.close()
-
-
-def get_process_tests(pid: int,
-                      conn: psycopg.Connection | None = None) -> list[dict]:
-    """Тестовые задания процесса (US-07, критерий 4): все, в порядке получения."""
-    return _fetch_all("""
-        select t.id, t.received_on, t.due_on, t.submitted_on, t.result_note,
-               s.name_ru as status_at_receipt,
-               (t.submitted_on is null and t.due_on is not null
-                and t.due_on >= current_date) as is_scheduled
-          from test_assignments t
-          join statuses s on s.id = t.status_id
-         where t.process_id = %(pid)s
-         order by t.received_on, t.id
-    """, {"pid": pid}, conn=conn)
 
 # ---------------------------------------------------------------- запись: навыки (US-11)
 

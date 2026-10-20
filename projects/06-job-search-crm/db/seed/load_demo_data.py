@@ -10,6 +10,9 @@
 Данные синтетические: вымышленные компании (с пометкой «демо»), ссылки на example.com.
 Даты считаются относительно дня запуска, поэтому напоминания всегда «живые».
 Повторный запуск приводит демонстрационную базу к тому же состоянию без дублей.
+
+D32, ADR-002: тестовое задание — обычный этап (TEST_ASSIGNMENT). Отдельной сущности нет;
+срок сдачи и результат пишутся текстом в комментарий к записи истории.
 """
 import argparse
 import random
@@ -25,8 +28,10 @@ REGULAR_COUNT = 82       # обычные процессы; к ним добав
 PINNED_COUNT = 14        # число закреплённых процессов в pinned_specs
 TW_SHARE = 0.30          # доля технических писателей среди всех процессов (остальное: SA/BA)
 
-STAGES = ("APPLIED", "HR_INTERVIEW", "TECH_INTERVIEW", "TEAM_MEETING", "SECURITY_CHECK", "OFFER")
-FUNNEL_STAGES = STAGES[1:]
+# Порядок этапов (по stage_order). TEST_ASSIGNMENT необязательный, но в генераторе встречается.
+STAGES = ("HR_INTERVIEW", "TEST_ASSIGNMENT", "TECH_INTERVIEW",
+          "TEAM_MEETING", "SECURITY_CHECK", "OFFER")
+FUNNEL_STAGES = ("HR_INTERVIEW", "TECH_INTERVIEW", "TEAM_MEETING", "SECURITY_CHECK", "OFFER")
 OUTCOMES = ("OFFER_ACCEPTED", "OFFER_DECLINED", "REJECTED_BY_EMPLOYER", "WITHDRAWN_BY_ME", "NO_RESPONSE")
 REJECTIONS = ("REJECTED_BY_EMPLOYER", "WITHDRAWN_BY_ME")
 ALL_STATUSES = STAGES + OUTCOMES
@@ -61,7 +66,6 @@ SKILL_POOLS = {
            "Руководство пользователя", "SQL", "XML", "Jira", "CI/CD", "API-документация",
            "Стайлгайд", "UML"],
 }
-# Профиль навыков соискателя: часть навыков из пулов выше намеренно в него не входит (пробелы)
 PROFILE_SKILLS = {
     "SA_BA": ["SQL", "BPMN", "UML", "REST API", "Jira", "Confluence", "Postman", "Swagger/OpenAPI",
               "XML", "JSON", "Use Case", "User Story", "Draw.io", "Figma", "Git", "ЭДО",
@@ -77,7 +81,17 @@ CONTACT_POSITIONS = ["HR-менеджер", "Рекрутёр", "Руковод�
 NOTES = ["Демо-комментарий: уточнить состав команды", "Демо-комментарий: обсудить формат работы",
          "Демо-комментарий: запросить детали по стеку"]
 
-STAGE_GAPS = {"TECH_INTERVIEW": (4, 12), "TEAM_MEETING": (3, 9), "SECURITY_CHECK": (3, 8), "OFFER": (4, 10)}
+# Тексты комментариев к этапу TEST_ASSIGNMENT (D32: срок и результат — в комментарии)
+TEST_NOTE_RECEIVED = "Тестовое получено, срок {due:%d.%m.%Y}"
+TEST_NOTE_SUBMITTED = "Тестовое получено {rec:%d.%m.%Y}, сдано {sub:%d.%m.%Y}, ждём ответа"
+
+STAGE_GAPS = {
+    "TEST_ASSIGNMENT": (2, 5),
+    "TECH_INTERVIEW": (4, 12),
+    "TEAM_MEETING": (3, 9),
+    "SECURITY_CHECK": (3, 8),
+    "OFFER": (4, 10),
+}
 
 
 # ---------------------------------------------------------------- структуры данных
@@ -88,15 +102,6 @@ class HistoryRec:
     stage_date: date
     reason: str | None = None
     note: str | None = None
-
-
-@dataclass
-class TestSpec:
-    status: str                    # статус, действовавший при получении задания
-    received_on: date
-    due_on: date | None
-    submitted_on: date | None
-    result_note: str | None = None
 
 
 @dataclass
@@ -117,7 +122,6 @@ class ProcessSpec:
     contact_position: str | None
     note: str | None
     history: list[HistoryRec] = field(default_factory=list)
-    tests: list[TestSpec] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
 
 
@@ -209,26 +213,31 @@ def assign_skills(rng: random.Random, spec: ProcessSpec, probability: float) -> 
 
 
 def build_timeline(rng: random.Random, today: date, spec: ProcessSpec) -> None:
-    """Строит историю и тестовые задания обычного процесса."""
+    """Строит историю обычного процесса. D32: тестовое — обычный этап, без событий."""
     start = today - timedelta(days=rng.randint(0, 270))
     test_first = spec.initiator == "applicant" and rng.random() < 0.10
     history: list[HistoryRec] = []
-    tests: list[TestSpec] = []
     d = start
     go_on = True
 
     if test_first:
+        # Первым выдано тестовое задание: первая запись — TEST_ASSIGNMENT
         due = d + timedelta(days=rng.randint(4, 8))
         submitted = max(d, due - timedelta(days=rng.randint(0, 2))) if due <= today else None
-        history.append(HistoryRec("APPLIED", d, note="Выдано тестовое задание"))
-        tests.append(TestSpec("APPLIED", d, due, submitted,
-                              "Задание сдано, ждём обратную связь" if submitted else None))
+        if submitted:
+            note = TEST_NOTE_SUBMITTED.format(rec=d, sub=submitted)
+        else:
+            note = TEST_NOTE_RECEIVED.format(due=due)
+        history.append(HistoryRec("TEST_ASSIGNMENT", d, note=note))
         d = (submitted or due) + timedelta(days=rng.randint(2, 7))
         go_on = rng.random() < 0.7
 
     path: list[str] = []
     if go_on:
         path = ["HR_INTERVIEW"]
+        # Примерно у 40% процессов тестовое стоит между HR и TECH
+        if rng.random() < 0.40:
+            path.append("TEST_ASSIGNMENT")
         if rng.random() < 0.6:
             path.append("TECH_INTERVIEW")
             if rng.random() < 0.35:
@@ -243,33 +252,27 @@ def build_timeline(rng: random.Random, today: date, spec: ProcessSpec) -> None:
         if index > 0:
             low, high = STAGE_GAPS[status]
             d = d + timedelta(days=rng.randint(low, high))
-        history.append(HistoryRec(status, d))
+        note = None
+        if status == "TEST_ASSIGNMENT":
+            due = d + timedelta(days=rng.randint(4, 8))
+            submitted = max(d, due - timedelta(days=rng.randint(0, 2))) if due <= today else None
+            if submitted:
+                note = TEST_NOTE_SUBMITTED.format(rec=d, sub=submitted)
+            else:
+                note = TEST_NOTE_RECEIVED.format(due=due)
+        history.append(HistoryRec(status, d, note=note))
         if d > today:             # будущий этап: дальше события ещё неизвестны
             scheduled_future = True
             break
 
-    reached_tech = any(rec.status == "TECH_INTERVIEW" for rec in history)
-    if reached_tech and rng.random() < 0.30:
-        hr_date = next(rec.stage_date for rec in history if rec.status == "HR_INTERVIEW")
-        received = hr_date + timedelta(days=rng.randint(1, 3))
-        if received <= today:
-            due = received + timedelta(days=rng.randint(3, 7))
-            submitted = max(received, due - timedelta(days=rng.randint(0, 2))) if due <= today else None
-            tests.append(TestSpec("HR_INTERVIEW", received, due, submitted,
-                                  "Задание сдано, ждём обратную связь" if submitted else None))
-
-    has_future_test = any(t.submitted_on is None and t.due_on is not None and t.due_on >= today for t in tests)
-    if not scheduled_future and not has_future_test:
+    if not scheduled_future:
         last = history[-1]
-        anchor = max([last.stage_date] + [t.submitted_on or t.due_on for t in tests
-                                          if (t.submitted_on or t.due_on) is not None])
-        close_date = anchor + timedelta(days=rng.randint(1, 9))
+        close_date = last.stage_date + timedelta(days=rng.randint(1, 9))
         if close_date <= today and rng.random() < 0.88:
             outcome = pick_outcome(rng, last.status)
             history.append(HistoryRec(outcome, close_date, pick_reason(rng, outcome)))
 
     spec.history = history
-    spec.tests = tests
     assign_skills(rng, spec, 0.7)
 
 
@@ -279,16 +282,14 @@ def pinned_specs(rng: random.Random, today: date, companies) -> list[ProcessSpec
     def day(offset: int) -> date:
         return today + timedelta(days=offset)
 
-    def make(direction: str, initiator: str, history: list[HistoryRec],
-             tests: list[TestSpec] | None = None) -> ProcessSpec:
+    def make(direction: str, initiator: str, history: list[HistoryRec]) -> ProcessSpec:
         spec = base_spec(rng, next(companies), direction, initiator)
         spec.history = history
-        spec.tests = tests or []
         assign_skills(rng, spec, 1.0)
         return spec
 
-    hr, tech, team, sec, offer = ("HR_INTERVIEW", "TECH_INTERVIEW", "TEAM_MEETING",
-                                  "SECURITY_CHECK", "OFFER")
+    hr, test, tech, team, sec, offer = ("HR_INTERVIEW", "TEST_ASSIGNMENT", "TECH_INTERVIEW",
+                                        "TEAM_MEETING", "SECURITY_CHECK", "OFFER")
     return [
         # «Сегодня и завтра»
         make("SA_BA", "applicant", [HistoryRec(hr, day(0))]),
@@ -297,23 +298,24 @@ def pinned_specs(rng: random.Random, today: date, companies) -> list[ProcessSpec
         # «В ближайшие 7 дней»
         make("TW", "applicant", [HistoryRec(hr, day(3))]),
         make("SA_BA", "applicant", [HistoryRec(hr, day(-5)), HistoryRec(tech, day(6))]),
-        make("SA_BA", "applicant", [HistoryRec(hr, day(-6))],
-             [TestSpec(hr, day(-2), day(4), None)]),                       # срок сдачи тестового
+        make("SA_BA", "applicant", [HistoryRec(hr, day(-6)), HistoryRec(test, day(4),
+             note=TEST_NOTE_RECEIVED.format(due=day(8)))]),
         make("SA_BA", "applicant", [HistoryRec(hr, day(-25)), HistoryRec(tech, day(-15)),
-                                    HistoryRec(offer, day(5))]),           # срок ответа на оффер
+                                    HistoryRec(offer, day(5))]),
         make("SA_BA", "applicant", [HistoryRec(hr, day(-30)), HistoryRec(tech, day(-20)),
                                     HistoryRec(team, day(4))]),
         # «Нет запланированного этапа»
         make("SA_BA", "applicant", [HistoryRec(hr, day(-12))]),
         make("TW", "applicant", [HistoryRec(hr, day(-20)), HistoryRec(tech, day(-9))]),
         make("SA_BA", "employer", [HistoryRec(hr, day(-15))]),
-        make("SA_BA", "applicant", [HistoryRec("APPLIED", day(-10), note="Выдано тестовое задание")],
-             [TestSpec("APPLIED", day(-10), day(-3), None)]),             # просроченное несданное тестовое
+        make("SA_BA", "applicant", [HistoryRec(test, day(-10),
+             note=TEST_NOTE_RECEIVED.format(due=day(-3)))]),
         make("SA_BA", "applicant", [HistoryRec(hr, day(-28)), HistoryRec(tech, day(-18)),
                                     HistoryRec(team, day(-10)), HistoryRec(sec, day(-2))]),
         # процесс, возвращённый в работу после отказа (в Q8 не входит, UQ4)
         make("TW", "applicant", [HistoryRec(hr, day(-30)),
-                                 HistoryRec("REJECTED_BY_EMPLOYER", day(-25), reason="OTHER_CANDIDATE_CHOSEN"),
+                                 HistoryRec("REJECTED_BY_EMPLOYER", day(-25),
+                                            reason="OTHER_CANDIDATE_CHOSEN"),
                                  HistoryRec(tech, day(2))]),
     ]
 
@@ -322,9 +324,8 @@ def reminder_groups(spec: ProcessSpec, today: date) -> set[str]:
     """Группы напоминаний процесса по правилу SR13: soon, week, none."""
     if spec.history[-1].status not in STAGES:
         return set()
-    dates = [rec.stage_date for rec in spec.history if rec.status in STAGES and rec.stage_date >= today]
-    dates += [t.due_on for t in spec.tests
-              if t.submitted_on is None and t.due_on is not None and t.due_on >= today]
+    dates = [rec.stage_date for rec in spec.history
+             if rec.status in STAGES and rec.stage_date >= today]
     if not dates:
         return {"none"}
     groups = set()
@@ -398,7 +399,6 @@ def validate(specs: list[ProcessSpec], today: date) -> list[str]:
     for status in ALL_STATUSES:
         need(status in current, f"нет процессов с текущим статусом «{status}»")
 
-    need(sum(len(s.tests) for s in specs) >= 10, "тестовых заданий меньше 10")
     need(sum(1 for s in specs if s.skills) >= 30, "процессов с навыками меньше 30")
     need(sum(1 for s in specs if s.salary_from or s.salary_to) >= 20, "процессов с вилкой меньше 20")
 
@@ -414,25 +414,26 @@ def validate(specs: list[ProcessSpec], today: date) -> list[str]:
         need(s.history[0].status in STAGES, f"{name}: первая запись не этап (INV-09)")
         need(all(a.stage_date <= b.stage_date for a, b in zip(s.history, s.history[1:])),
              f"{name}: даты истории не по возрастанию")
-        if s.history[0].status == "APPLIED":
-            need(bool(s.tests), f"{name}: начат с «Отклика» без тестового (INV-20)")
         last = s.history[-1]
-        qualifies = any(rec.status in FUNNEL_STAGES for rec in s.history) or bool(s.tests)
-        if last.status in REJECTIONS and qualifies:
-            need(last.reason is not None, f"{name}: отказ без причины (INV-08)")
+        if last.status in REJECTIONS:
+            # SR9: причина обязательна, если в истории есть HR, TEST или позже
+            qualifies = any(rec.status in STAGES for rec in s.history)
+            if qualifies:
+                need(last.reason is not None, f"{name}: отказ без причины (INV-08)")
         for rec in s.history:
             if rec.reason is not None:
                 need(rec.status in REJECTIONS, f"{name}: причина у записи не об отказе")
         if s.initiator == "employer":
-            need(s.source is None and s.apply_channel is None, f"{name}: у входящего заполнены источник/канал отклика")
+            need(s.source is None and s.apply_channel is None,
+                 f"{name}: у входящего заполнены источник/канал отклика")
         else:
-            need(s.source is not None and s.apply_channel is not None, f"{name}: у отклика нет источника/канала отклика")
-        need(not (s.salary_from and s.salary_to and s.salary_from > s.salary_to), f"{name}: вилка «от» больше «до»")
-        for t in s.tests:
-            need(t.due_on is None or t.due_on >= t.received_on, f"{name}: срок сдачи раньше получения")
-            need(t.submitted_on is None or t.submitted_on >= t.received_on, f"{name}: сдача раньше получения")
+            need(s.source is not None and s.apply_channel is not None,
+                 f"{name}: у отклика нет источника/канала отклика")
+        need(not (s.salary_from and s.salary_to and s.salary_from > s.salary_to),
+             f"{name}: вилка «от» больше «до»")
         if s.skills:
-            need(any(rec.status in FUNNEL_STAGES for rec in s.history), f"{name}: навыки без HR-интервью (D8)")
+            need(any(rec.status in FUNNEL_STAGES for rec in s.history),
+                 f"{name}: навыки без HR-интервью (D8)")
     return problems
 
 
@@ -443,7 +444,6 @@ def generate_demo(today: date, seed: int = SEED) -> list[ProcessSpec]:
     if len(pinned) != PINNED_COUNT:
         raise RuntimeError(f"Ожидалось {PINNED_COUNT} закреплённых процессов, получено {len(pinned)}")
 
-    # Направления распределяются точно: TW_SHARE от всех процессов, остальное SA/BA
     total = REGULAR_COUNT + PINNED_COUNT
     regular_tw = round(TW_SHARE * total) - sum(1 for s in pinned if s.direction == "TW")
     directions = ["TW"] * regular_tw + ["SA_BA"] * (REGULAR_COUNT - regular_tw)
@@ -490,12 +490,6 @@ values
      %(note)s, (select id from rejection_reasons where code = %(reason)s))
 """
 
-INSERT_TEST = """
-insert into test_assignments (process_id, status_id, received_on, due_on, submitted_on, result_note)
-values (%(process_id)s, (select id from statuses where code = %(status)s), %(received_on)s,
-        %(due_on)s, %(submitted_on)s, %(result_note)s)
-"""
-
 
 def recorded_times(rng: random.Random, today: date, history: list[HistoryRec]) -> list[datetime]:
     """Моменты создания записей: по возрастанию, не позже дня этапа (для будущих этапов — не позже сегодня)."""
@@ -511,7 +505,7 @@ def recorded_times(rng: random.Random, today: date, history: list[HistoryRec]) -
 
 def load(conn, specs: list[ProcessSpec], today: date) -> None:
     rng = random.Random(SEED + 1)
-    conn.execute("truncate table process_skills, profile_skills, test_assignments, "
+    conn.execute("truncate table process_skills, profile_skills, "
                  "process_status_history, job_processes, skills restart identity")
 
     skill_names = sorted({name for pool in SKILL_POOLS.values() for name in pool}
@@ -538,20 +532,17 @@ def load(conn, specs: list[ProcessSpec], today: date) -> None:
             conn.execute(INSERT_HISTORY, {
                 "process_id": process_id, "status": rec.status, "stage_date": rec.stage_date,
                 "recorded_at": moment, "note": rec.note, "reason": rec.reason})
-        for test in spec.tests:
-            conn.execute(INSERT_TEST, {
-                "process_id": process_id, "status": test.status, "received_on": test.received_on,
-                "due_on": test.due_on, "submitted_on": test.submitted_on, "result_note": test.result_note})
         for name in spec.skills:
             conn.execute("""insert into process_skills (process_id, skill_id)
-                            select %s, id from skills where lower(name) = lower(%s)""", (process_id, name))
+                            select %s, id from skills where lower(name) = lower(%s)""",
+                         (process_id, name))
 
 
 def print_summary(conn) -> None:
     count = lambda table: conn.execute(f"select count(*) from {table}").fetchone()[0]
     print(f"Загружено: процессов {count('job_processes')}, записей истории {count('process_status_history')}, "
-          f"тестовых заданий {count('test_assignments')}, навыков {count('skills')}, "
-          f"связей процесс-навык {count('process_skills')}, навыков в профиле {count('profile_skills')}.")
+          f"навыков {count('skills')}, связей процесс-навык {count('process_skills')}, "
+          f"навыков в профиле {count('profile_skills')}.")
     print("Процессы по текущему статусу:")
     for name, number in conn.execute("""
             select s.name_ru, count(*) from job_processes p join statuses s on s.id = p.status_id

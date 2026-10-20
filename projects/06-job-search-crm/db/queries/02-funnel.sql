@@ -1,16 +1,17 @@
 -- =====================================================================
 -- 02-funnel.sql
 -- Вопрос Q1 (US-12): сколько процессов достигло каждого этапа воронки и какова конверсия между этапами.
--- Правила: SR11 (воронка по истории), D9, D14, D25 («Отклик» вне воронки), D30 (оба инициатора, фильтр по инициатору).
+-- Правила: SR11 (воронка по истории), D9, D14, D30 (оба инициатора, фильтр по инициатору), D32.
+-- D32: этап «Тестовое задание» необязательный и в воронке не участвует; отдельной строки
+-- «только тестовое» больше нет.
 -- Параметры (None = без фильтра): initiator ('applicant' / 'employer'), date_from, date_to
 -- (по дате начала процесса), source, apply_channel, employer_type, employment_format (коды справочников).
 -- =====================================================================
--- Колонки: scope (направление или ALL), n_total (процессов), n_only_test («только тестовое»), n_hr, n_tech,
--- n_team, n_security, n_offer (достигли этапа), pct_* (конверсия в процентах): HR -> техническое, техническое -> оффер, HR -> оффер.
+-- Колонки: scope (направление или ALL), n_total (процессов), n_hr, n_tech, n_team, n_security, n_offer
+-- (достигли этапа), pct_* (конверсия в процентах): HR -> техническое, техническое -> оффер, HR -> оффер.
 
 with thresholds as (
-    select (select stage_order from statuses where code = 'APPLIED')        as applied_order,
-           (select stage_order from statuses where code = 'HR_INTERVIEW')   as hr_order,
+    select (select stage_order from statuses where code = 'HR_INTERVIEW')   as hr_order,
            (select stage_order from statuses where code = 'TECH_INTERVIEW') as tech_order,
            (select stage_order from statuses where code = 'OFFER')          as offer_order
 ),
@@ -56,12 +57,11 @@ flags as (
            coalesce(m.max_order, 0) >= t.tech_order  as reached_tech,
            coalesce(m.max_order, 0) >= t.offer_order as reached_offer,
            coalesce(m.had_team, false)               as had_team,
-           coalesce(m.had_security, false)           as had_security,
-           coalesce(m.max_order, 0) = t.applied_order as only_test
+           coalesce(m.had_security, false)           as had_security
       from filtered f
       cross join thresholds t
       left join lateral (
-            select max(s.stage_order)                  as max_order,
+            select max(s.stage_order) filter (where s.in_funnel) as max_order,
                    bool_or(s.code = 'TEAM_MEETING')    as had_team,
                    bool_or(s.code = 'SECURITY_CHECK')  as had_security
               from process_status_history h
@@ -71,7 +71,6 @@ flags as (
 )
 select coalesce(direction, 'ALL')                 as scope,
        count(*)                                   as n_total,
-       count(*) filter (where only_test)          as n_only_test,
        count(*) filter (where reached_hr)         as n_hr,
        count(*) filter (where reached_tech)       as n_tech,
        count(*) filter (where had_team)           as n_team,

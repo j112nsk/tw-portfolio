@@ -80,25 +80,22 @@ def run(conn) -> None:
           row[0] is None and row[1] is None)
     check("Текущий статус входящего процесса = HR_INTERVIEW", current_status(conn, pid_emp) == "HR_INTERVIEW")
 
-    print("\n3. Процесс со стартом «Отклик» (первым выдано тестовое, D25, INV-20)")
+    print("\n3. Процесс со стартом «Тестовое задание» (первым выдано тестовое, D32)")
     pid_test = data.create_process(
         direction_code="SA_BA", initiator="applicant",
         company_name="Тест Первым", vacancy_title="Аналитик",
-        initial_status_code="APPLIED", initial_stage_date=date(2026, 10, 5),
-        test_due_on=date(2026, 10, 12),
+        initial_status_code="TEST_ASSIGNMENT", initial_stage_date=date(2026, 10, 5),
         vacancy_source_code="HH_RU", apply_channel_code="HH_RU",
         communication_channel_code="HH_RU",
         conn=conn,
     )
-    check("Тестовое задание создано автоматически",
-          scalar(conn, "select count(*) from test_assignments where process_id = %s", (pid_test,)) == 1)
-    check("Статус процесса = APPLIED (триггер)",
-          current_status(conn, pid_test) == "APPLIED")
-    test_row = conn.execute(
-        "select received_on, due_on from test_assignments where process_id = %s", (pid_test,)
-    ).fetchone()
-    check("У тестового заданная дата получения и срок сдачи",
-          test_row[0] == date(2026, 10, 5) and test_row[1] == date(2026, 10, 12))
+    check("Текущий статус = TEST_ASSIGNMENT (триггер)", current_status(conn, pid_test) == "TEST_ASSIGNMENT")
+    rec = scalar(conn, "select count(*) from process_status_history where process_id = %s", (pid_test,))
+    check("История содержит ровно одну запись (тестовое = этап, D32)", rec == 1, f"найдено {rec}")
+    in_funnel = scalar(conn, """
+        select s.in_funnel from job_processes p join statuses s on s.id = p.status_id where p.id = %s
+    """, (pid_test,))
+    check("TEST_ASSIGNMENT вне воронки (in_funnel = false)", in_funnel is False)
 
     print("\n4. Значения по умолчанию из последнего процесса")
     defaults = data.get_last_process_defaults(conn=conn)
@@ -164,14 +161,6 @@ def run(conn) -> None:
         company_name="X", vacancy_title="Y",
         initial_status_code="OFFER_ACCEPTED", initial_stage_date=date(2026, 10, 20),
         communication_channel_code="TELEGRAM", conn=conn))
-
-    expect_error("Срок сдачи при не-«Отклике»", ValueError, lambda: data.create_process(
-        direction_code="SA_BA", initiator="applicant",
-        company_name="X", vacancy_title="Y",
-        initial_status_code="HR_INTERVIEW", initial_stage_date=date(2026, 10, 20),
-        vacancy_source_code="HH_RU", apply_channel_code="HH_RU",
-        communication_channel_code="TELEGRAM",
-        test_due_on=date(2026, 10, 25), conn=conn))
 
     print("\n6. Правила на уровне базы (триггер канала отклика, INV-04)")
     expect_error("Канал отклика PHONE (is_apply_channel = false)", psycopg.Error,

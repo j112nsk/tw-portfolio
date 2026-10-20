@@ -62,7 +62,7 @@ flags as (
       from filtered f
       cross join thresholds t
       left join lateral (
-            select max(s.stage_order)                  as max_order,
+            select max(s.stage_order) filter (where s.in_funnel) as max_order,
                    bool_or(s.code = 'TEAM_MEETING')    as had_team,
                    bool_or(s.code = 'SECURITY_CHECK')  as had_security
               from process_status_history h

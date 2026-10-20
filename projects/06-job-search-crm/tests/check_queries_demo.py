@@ -6,8 +6,8 @@
 
 Запуск из корня проекта при активном виртуальном окружении (дата в обеих командах одинаковая):
     $env:PGDATABASE = "job_search_crm_demo"
-    python -m db.seed.load_demo_data --today 2026-10-11
-    python -m tests.check_queries_demo --today 2026-10-11
+    python -m db.seed.load_demo_data --today 2026-10-20
+    python -m tests.check_queries_demo --today 2026-10-20
 """
 import argparse
 import statistics
@@ -19,12 +19,17 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from db.connection import get_connection
 from db.run_queries import QUERIES_DIR, default_params, run_file
-from db.seed.load_demo_data import (APPLY_CHANNELS, DEMO_DATABASE, DIRECTIONS, PROFILE_SKILLS, REJECTIONS,
-                                    SOURCES, STAGES, ProcessSpec, generate_demo)
+from db.seed.load_demo_data import (APPLY_CHANNELS, DEMO_DATABASE, DIRECTIONS, FUNNEL_STAGES,
+                                    PROFILE_SKILLS, REJECTIONS, SOURCES, STAGES, ProcessSpec,
+                                    generate_demo)
 
 STAGE_ORDER = {code: number for number, code in enumerate(STAGES, start=1)}
-STATUS_NAMES = {"APPLIED": "Отклик", "HR_INTERVIEW": "HR-интервью", "TECH_INTERVIEW": "Техническое собеседование",
-                "TEAM_MEETING": "Знакомство с командой", "SECURITY_CHECK": "СБ", "OFFER": "Оффер"}
+STATUS_NAMES = {"HR_INTERVIEW": "HR-интервью",
+                "TEST_ASSIGNMENT": "Тестовое задание",
+                "TECH_INTERVIEW": "Техническое собеседование",
+                "TEAM_MEETING": "Знакомство с командой",
+                "SECURITY_CHECK": "СБ",
+                "OFFER": "Оффер"}
 
 results: list[tuple[str, bool]] = []
 
@@ -35,19 +40,19 @@ results: list[tuple[str, bool]] = []
 class Item:
     spec: ProcessSpec
     start_date: date
-    max_order: int
+    max_funnel_order: int  # максимум stage_order только по этапам, входящим в воронку (SR11)
 
     @property
     def reached_hr(self) -> bool:
-        return self.max_order >= STAGE_ORDER["HR_INTERVIEW"]
+        return self.max_funnel_order >= STAGE_ORDER["HR_INTERVIEW"]
 
     @property
     def reached_tech(self) -> bool:
-        return self.max_order >= STAGE_ORDER["TECH_INTERVIEW"]
+        return self.max_funnel_order >= STAGE_ORDER["TECH_INTERVIEW"]
 
     @property
     def reached_offer(self) -> bool:
-        return self.max_order >= STAGE_ORDER["OFFER"]
+        return self.max_funnel_order >= STAGE_ORDER["OFFER"]
 
     @property
     def had_team(self) -> bool:
@@ -57,15 +62,15 @@ class Item:
     def had_security(self) -> bool:
         return any(r.status == "SECURITY_CHECK" for r in self.spec.history)
 
-    @property
-    def only_test(self) -> bool:
-        return self.max_order == STAGE_ORDER["APPLIED"]
-
 
 def derive(spec: ProcessSpec) -> Item:
-    stage_records = [r for r in spec.history if r.status in STAGE_ORDER]
-    return Item(spec, min(r.stage_date for r in stage_records),
-                max(STAGE_ORDER[r.status] for r in stage_records))
+    """Строит Item: дата начала — по всем этапам (DQ7), max_order — только по in_funnel (SR11)."""
+    all_stage_dates = [r.stage_date for r in spec.history if r.status in STAGE_ORDER]
+    start_date = min(all_stage_dates)
+    funnel_orders = [STAGE_ORDER[r.status] for r in spec.history
+                     if r.status in FUNNEL_STAGES]
+    max_funnel_order = max(funnel_orders) if funnel_orders else 0
+    return Item(spec, start_date, max_funnel_order)
 
 
 def pct(part: int, whole: int) -> Decimal | None:
@@ -111,8 +116,6 @@ def expect_reminders(specs: list[ProcessSpec], today: date) -> Counter:
             continue
         events = [(r.stage_date, "stage", STATUS_NAMES[r.status]) for r in s.history
                   if r.status in STAGE_ORDER and r.stage_date >= today]
-        events += [(t.due_on, "test_due", "Срок сдачи тестового задания") for t in s.tests
-                   if t.submitted_on is None and t.due_on is not None and t.due_on >= today]
         if not events:
             last_stage = max(r.stage_date for r in s.history if r.status in STAGE_ORDER)
             rows[("no_planned_stage", last_stage, s.company, "none", "Нет запланированного этапа",
@@ -137,7 +140,7 @@ def expect_funnel(items: list[Item]) -> dict:
         n_hr = sum(i.reached_hr for i in group)
         n_tech = sum(i.reached_tech for i in group)
         n_offer = sum(i.reached_offer for i in group)
-        rows[(scope,)] = (len(group), sum(i.only_test for i in group), n_hr, n_tech,
+        rows[(scope,)] = (len(group), n_hr, n_tech,
                           sum(i.had_team for i in group), sum(i.had_security for i in group), n_offer,
                           pct(n_tech, n_hr), pct(n_offer, n_tech), pct(n_offer, n_hr))
     return rows
@@ -318,7 +321,7 @@ def run_checks(conn, specs: list[ProcessSpec], today: date) -> None:
         compare_dicts(f"Воронка, {label}",
                       expect_funnel(apply_filters(items, params)),
                       to_dict(columns, rows, ["scope"],
-                              ["n_total", "n_only_test", "n_hr", "n_tech", "n_team", "n_security", "n_offer",
+                              ["n_total", "n_hr", "n_tech", "n_team", "n_security", "n_offer",
                                "pct_tech_of_hr", "pct_offer_of_tech", "pct_offer_of_hr"]))
 
     print("\n3. Дни между этапами (Q2)")

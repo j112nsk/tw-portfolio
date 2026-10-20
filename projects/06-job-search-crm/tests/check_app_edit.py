@@ -1,4 +1,4 @@
-"""Проверка правки полей, дат этапов и удаления процесса (US-05).
+"""Проверка правки полей, записей истории и удаления процесса (US-05).
 
 Все проверки в одной транзакции, которая в конце откатывается.
 
@@ -62,6 +62,14 @@ def history_ids(conn, pid: int) -> list[int]:
         "select id from process_status_history where process_id = %s "
         "order by recorded_at, id", (pid,)).fetchall()
     return [r[0] for r in rows]
+
+
+def history_status(conn, history_id: int) -> str:
+    return scalar(conn, """
+        select s.code from process_status_history h
+          join statuses s on s.id = h.status_id
+         where h.id = %s
+    """, (history_id,))
 
 
 def run(conn) -> None:
@@ -157,12 +165,13 @@ def run(conn) -> None:
                      communication_channel_code="TELEGRAM",
                      vacancy_source_code="HH_RU", apply_channel_code="HH_RU", conn=conn))
 
-    print("\n4. Правка даты этапа (D22)")
+    print("\n4. Правка даты этапа и комментария (D22)")
     pid2 = make_open(conn, company="Дата-правка")
     data.update_process_status(pid2, "TECH_INTERVIEW", date(2026, 10, 10), conn=conn)
     ids = history_ids(conn, pid2)
-    first_id = ids[0]
-    data.update_history_record(first_id, stage_date=date(2026, 9, 28), note="перенос",
+    first_id = ids[0]                                           # HR_INTERVIEW
+    data.update_history_record(first_id, status_code=history_status(conn, first_id),
+                               stage_date=date(2026, 9, 28), note="перенос",
                                conn=conn)
     row = conn.execute("select stage_date, note from process_status_history where id = %s",
                        (first_id,)).fetchone()
@@ -171,13 +180,32 @@ def run(conn) -> None:
     check("Статус процесса не изменился (правка даты не влияет на порядок записей)",
           current_status(conn, pid2) == "TECH_INTERVIEW")
 
-    expect_error("Несуществующая запись истории", ValueError,
-                 lambda: data.update_history_record(10 ** 9, stage_date=date(2026, 10, 1),
-                                                    conn=conn))
+    print("\n5. Смена статуса через update_history_record (D33)")
+    # first_id — не последняя запись; смена её статуса не должна влиять на текущий статус
+    data.update_history_record(first_id, status_code="TEAM_MEETING",
+                               stage_date=date(2026, 9, 28), conn=conn)
+    check("Статус первой записи изменился", history_status(conn, first_id) == "TEAM_MEETING")
+    check("Текущий статус процесса не изменился (правка не-последней записи)",
+          current_status(conn, pid2) == "TECH_INTERVIEW")
 
-    print("\n5. Удаление записи истории (US-05, критерий 3)")
+    # Правка причины отказа: допустима только для отказов
+    expect_error("Причина отказа у не-отказа отклоняется (INV-08)", ValueError,
+                 lambda: data.update_history_record(
+                     first_id, status_code="TEAM_MEETING", stage_date=date(2026, 9, 28),
+                     rejection_reason_code="NO_REASON", conn=conn))
+
+    expect_error("Несуществующий статус в правке", ValueError,
+                 lambda: data.update_history_record(
+                     first_id, status_code="NO_SUCH", stage_date=date(2026, 9, 28), conn=conn))
+
+    expect_error("Несуществующая запись истории", ValueError,
+                 lambda: data.update_history_record(
+                     10 ** 9, status_code="HR_INTERVIEW",
+                     stage_date=date(2026, 10, 1), conn=conn))
+
+    print("\n6. Удаление записи истории (US-05, критерий 3)")
     ids = history_ids(conn, pid2)
-    # удаляем первую запись (HR_INTERVIEW) — остаётся TECH_INTERVIEW, статус не меняется
+    # удаляем первую запись (TEAM_MEETING) — остаётся TECH_INTERVIEW, статус не меняется
     data.delete_history_record(ids[0], conn=conn)
     check("Запись удалена",
           scalar(conn, "select count(*) from process_status_history where process_id = %s",
@@ -185,7 +213,7 @@ def run(conn) -> None:
     check("Текущий статус = TECH_INTERVIEW (последняя оставшаяся запись)",
           current_status(conn, pid2) == "TECH_INTERVIEW")
 
-    print("\n6. Нельзя удалить единственную запись истории (INV-18)")
+    print("\n7. Нельзя удалить единственную запись истории (INV-18)")
     pid3 = make_open(conn, company="Единственная")
     only_id = history_ids(conn, pid3)[0]
     expect_error("Удаление единственной записи отклоняется базой",
@@ -195,12 +223,9 @@ def run(conn) -> None:
           scalar(conn, "select count(*) from process_status_history where process_id = %s",
                  (pid3,)) == 1)
 
-    print("\n7. Удаление процесса каскадом (US-05, критерий 5)")
+    print("\n8. Удаление процесса каскадом (US-05, критерий 5)")
     pid4 = make_open(conn, company="Каскад-тест")
     data.update_process_status(pid4, "TECH_INTERVIEW", date(2026, 10, 10), conn=conn)
-    conn.execute("""insert into test_assignments (process_id, status_id, received_on)
-                    values (%s, (select id from statuses where code = 'HR_INTERVIEW'), %s)""",
-                 (pid4, date(2026, 10, 2)))
     conn.execute("insert into skills (name) values ('Каскад-навык') on conflict do nothing")
     conn.execute("""insert into process_skills (process_id, skill_id)
                     select %s, id from skills where lower(name) = lower('Каскад-навык')""",
@@ -208,9 +233,8 @@ def run(conn) -> None:
     data.delete_process(pid4, conn=conn)
     check("Процесс удалён",
           scalar(conn, "select count(*) from job_processes where id = %s", (pid4,)) == 0)
-    check("История, тестовые и связи с навыками удалены каскадом",
+    check("История и связи с навыками удалены каскадом",
           scalar(conn, "select count(*) from process_status_history where process_id = %s", (pid4,)) == 0
-          and scalar(conn, "select count(*) from test_assignments where process_id = %s", (pid4,)) == 0
           and scalar(conn, "select count(*) from process_skills where process_id = %s", (pid4,)) == 0)
     check("Сам навык остался в справочнике",
           scalar(conn, "select count(*) from skills where lower(name) = lower('Каскад-навык')") == 1)
@@ -220,7 +244,7 @@ def run(conn) -> None:
 
 
 def main() -> None:
-    print("Проверка правки полей, дат этапов и удаления (US-05)")
+    print("Проверка правки полей, записей истории и удаления (US-05)")
     with get_connection() as conn:
         name = conn.execute("select current_database()").fetchone()[0]
         if name != DEMO_DATABASE:

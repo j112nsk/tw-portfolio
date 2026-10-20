@@ -1,7 +1,7 @@
 -- =====================================================================
 -- 00-integrity-checks.sql
 -- Проверка согласованности данных (правила, которые не контролирует база
--- ограничениями): INV-08 (обязательность причины отказа), INV-09, INV-10, INV-20.
+-- ограничениями): INV-08, INV-09, INV-10.
 -- Результат: по одной строке на каждое нарушение. Пустой результат = данные согласованы.
 -- Запуск: python -m db.check_integrity
 -- =====================================================================
@@ -48,31 +48,20 @@ select 'INV-10', p.id, p.company_name,
 
 union all
 
--- INV-08: отказ после интервью или тестового без причины
+-- INV-08: отказ без причины, если в истории есть этап (HR, тестовое или позже)
 select 'INV-08', p.id, p.company_name,
-       'процесс закрыт отказом после интервью или тестового, причина не указана'
+       'процесс закрыт отказом после HR-интервью, тестового или позже; причина не указана'
   from job_processes p
   join statuses cs on cs.id = p.status_id
   join last_rec l on l.process_id = p.id
  where cs.code in ('REJECTED_BY_EMPLOYER', 'WITHDRAWN_BY_ME')
    and l.rejection_reason_id is null
-   and (
-        exists (select 1
-                  from process_status_history h
-                  join statuses s on s.id = h.status_id
-                 where h.process_id = p.id and s.in_funnel)
-        or exists (select 1 from test_assignments t where t.process_id = p.id)
+   and exists (
+        select 1
+          from process_status_history h
+          join statuses s on s.id = h.status_id
+         where h.process_id = p.id
+           and s.kind = 'stage'
    )
-
-union all
-
--- INV-20: процесс начат с «Отклика», но тестового задания нет
-select 'INV-20', p.id, p.company_name,
-       'процесс начат с «Отклика», но у него нет тестового задания'
-  from job_processes p
-  join first_rec f on f.process_id = p.id
-  join statuses s on s.id = f.status_id
- where s.code = 'APPLIED'
-   and not exists (select 1 from test_assignments t where t.process_id = p.id)
 
 order by rule, process_id;

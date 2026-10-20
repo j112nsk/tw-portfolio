@@ -16,7 +16,7 @@ from db.connection import get_connection
 EXPECTED_TABLES = {
     "directions", "vacancy_sources", "channels", "employer_types", "employment_formats",
     "rejection_reasons", "statuses", "skills", "job_processes", "process_status_history",
-    "test_assignments", "process_skills", "profile_skills",
+    "process_skills", "profile_skills",
 }
 EXPECTED_TRIGGERS = {
     "job_processes_check_channels",
@@ -127,7 +127,7 @@ def check_structure(conn) -> None:
         "select table_name from information_schema.tables "
         "where table_schema = 'public' and table_type = 'BASE TABLE'")}
     missing = EXPECTED_TABLES - tables
-    check("Все 13 таблиц модели созданы", not missing, f"нет таблиц: {sorted(missing)}")
+    check("Все 12 таблиц модели созданы", not missing, f"нет таблиц: {sorted(missing)}")
 
     triggers = {row[0] for row in conn.execute("select tgname from pg_trigger where not tgisinternal")}
     missing = EXPECTED_TRIGGERS - triggers
@@ -152,7 +152,7 @@ def check_reference_data(conn) -> None:
     stages = scalar(conn, "select count(*) from statuses where kind = 'stage'")
     required = scalar(conn, "select count(*) from statuses where is_required_stage")
     in_funnel = scalar(conn, "select count(*) from statuses where in_funnel")
-    check("Этапов 6; обязательных 3; участвуют в воронке 5 (без «Отклика»)",
+    check("Этапов 6; обязательных 3; участвуют в воронке 5 (без «Тестового задания»)",
           (stages, required, in_funnel) == (6, 3, 5),
           f"этапов {stages}, обязательных {required}, в воронке {in_funnel}")
     check("Каналом отклика можно назвать только 3 канала (телефон нельзя)",
@@ -182,16 +182,13 @@ def check_status_sync(conn) -> None:
     expect_error(conn, "Единственную запись истории удалить нельзя (INV-18)", RESTRICT_VIOLATION,
                  "delete from process_status_history where process_id = %s", (only_one,))
 
-    test_first = add_process(conn, company="Первым выдано тестовое", status="APPLIED")
-    add_history(conn, test_first, "APPLIED", date(2026, 10, 5))
-    conn.execute("""insert into test_assignments (process_id, status_id, received_on, due_on)
-                    values (%s, (select id from statuses where code = 'APPLIED'), %s, %s)""",
-                 (test_first, date(2026, 10, 5), date(2026, 10, 12)))
+    test_first = add_process(conn, company="Первым выдано тестовое", status="TEST_ASSIGNMENT")
+    add_history(conn, test_first, "TEST_ASSIGNMENT", date(2026, 10, 5))
     in_funnel = scalar(conn, """
         select s.in_funnel from job_processes p join statuses s on s.id = p.status_id where p.id = %s
     """, (test_first,))
-    check("Процесс, начатый с выдачи тестового: статус «Отклик», в воронку он не входит (D25)",
-          current_status(conn, test_first) == "APPLIED" and in_funnel is False)
+    check("Процесс, начатый с выдачи тестового: статус «Тестовое задание», в воронку не входит (D32)",
+          current_status(conn, test_first) == "TEST_ASSIGNMENT" and in_funnel is False)
 
 
 def check_constraints(conn) -> None:
@@ -243,16 +240,6 @@ def check_constraints(conn) -> None:
 
     expect_error(conn, "Нулевая вилка не сохраняется (INV-05)", CHECK_VIOLATION,
                  "update job_processes set salary_from = 0 where id = %s", (no_url,))
-
-    expect_error(conn, "Срок сдачи тестового раньше даты получения не сохраняется (INV-13)", CHECK_VIOLATION,
-                 """insert into test_assignments (process_id, status_id, received_on, due_on)
-                    values (%s, (select id from statuses where code = 'HR_INTERVIEW'), %s, %s)""",
-                 (no_url, date(2026, 10, 10), date(2026, 10, 5)))
-
-    expect_error(conn, "Дата сдачи тестового раньше даты получения не сохраняется (INV-13)", CHECK_VIOLATION,
-                 """insert into test_assignments (process_id, status_id, received_on, submitted_on)
-                    values (%s, (select id from statuses where code = 'HR_INTERVIEW'), %s, %s)""",
-                 (no_url, date(2026, 10, 10), date(2026, 10, 5)))
 
     expect_error(conn, "Этап без признака участия в воронке не сохраняется (согласованность справочника статусов)",
                  CHECK_VIOLATION,
@@ -311,21 +298,16 @@ def check_cascade(conn) -> None:
     section("7. Удаление процесса (каскад)")
     pid = add_full_process(conn, company="Каскадное удаление")
     add_history(conn, pid, "TECH_INTERVIEW", date(2026, 10, 15))
-    conn.execute("""insert into test_assignments (process_id, status_id, received_on)
-                    values (%s, (select id from statuses where code = 'HR_INTERVIEW'), %s)""",
-                 (pid, date(2026, 10, 9)))
     conn.execute("insert into skills (name) values ('UML') on conflict do nothing")
     conn.execute("""insert into process_skills (process_id, skill_id)
                     select %s, id from skills where name = 'UML'""", (pid,))
 
     conn.execute("delete from job_processes where id = %s", (pid,))
     history = scalar(conn, "select count(*) from process_status_history where process_id = %s", (pid,))
-    tests = scalar(conn, "select count(*) from test_assignments where process_id = %s", (pid,))
     skills = scalar(conn, "select count(*) from process_skills where process_id = %s", (pid,))
     check("Процесс удаляется вместе с историей (несмотря на защиту последней записи)", history == 0,
           f"записей истории: {history}")
-    check("Вместе с процессом удалены тестовые задания и связи с навыками", tests == 0 and skills == 0,
-          f"заданий: {tests}, навыков: {skills}")
+    check("Вместе с процессом удалены связи с навыками", skills == 0, f"навыков: {skills}")
     check("Сам навык после удаления процесса остаётся в справочнике",
           scalar(conn, "select count(*) from skills where name = 'UML'") == 1)
 
