@@ -122,6 +122,15 @@ closing_record as (
       from process_status_history h
      order by h.process_id, h.recorded_at desc, h.id desc
 ),
+first_recorded as (
+    -- Дата самой ранней записи истории (по recorded_at) в локальной зоне сессии.
+    -- Используется в duration_days: начало = min(минимальная дата этапа, дата первой записи).
+    select distinct on (h.process_id)
+           h.process_id,
+           (h.recorded_at at time zone current_setting('TimeZone'))::date as first_recorded_date
+      from process_status_history h
+     order by h.process_id, h.recorded_at asc, h.id asc
+),
 next_stage as (
     select distinct on (h.process_id)
            h.process_id,
@@ -149,7 +158,7 @@ select p.id,
        coalesce(
            greatest(0,
                (case when st.kind = 'outcome' then cr.closing_date else %(today)s::date end)
-               - sd.start_date
+               - least(sd.start_date, fr.first_recorded_date)
            ),
            0
        )::integer as duration_days
@@ -164,6 +173,7 @@ select p.id,
   left join last_history  lh on lh.process_id = p.id
   left join start_date    sd on sd.process_id = p.id
   left join closing_record cr on cr.process_id = p.id
+  left join first_recorded fr on fr.process_id = p.id
   left join next_stage    ns on ns.process_id = p.id
  where (%(state)s::text is null
         or (%(state)s = 'open'   and st.kind = 'stage')

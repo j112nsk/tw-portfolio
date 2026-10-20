@@ -52,16 +52,21 @@ def _index_of(rows: list[dict], code: str | None, default: int = 0) -> int:
 def _duration_days(process: dict, history: list[dict]) -> int:
     """Длительность процесса в календарных днях (как в списке процессов).
 
-    Дата начала — минимальная stage_date среди записей-этапов (DQ7). Конец: для закрытых
-    процессов — stage_date последней записи истории (записи упорядочены по recorded_at desc,
-    id desc, поэтому history[0] — последняя); для открытых — сегодня. Результат не меньше 0:
-    для процессов с датами только в будущем — 0.
+    Начало — min(минимальная stage_date среди записей-этапов, дата первой записи истории
+    по recorded_at). Так процесс с будущим этапом не показывает 0 дней: берётся дата
+    создания записи. Конец: для закрытых — stage_date последней записи (history[0]
+    после сортировки по recorded_at desc, id desc); для открытых — сегодня.
+
+    recorded_at.date() даёт локальную дату момента записи; в SQL (LIST_PROCESSES_SQL)
+    аналогично используется (recorded_at at time zone current_setting('TimeZone'))::date.
+    Обе реализации должны давать одинаковый результат.
     """
     stage_dates = [h["stage_date"] for h in history if h["status_kind"] == "stage"]
-    if not stage_dates:
+    if not stage_dates or not history:
         return 0
-    start = min(stage_dates)
-    if process["status_kind"] == "outcome" and history:
+    first_recorded = min(h["recorded_at"].date() for h in history)
+    start = min(min(stage_dates), first_recorded)
+    if process["status_kind"] == "outcome":
         end = history[0]["stage_date"]
     else:
         end = date.today()
@@ -354,15 +359,13 @@ st.caption("Сверху — самые свежие записи (по дате
 history_kinds = [row["status_kind"] for row in card["history"]]
 
 history_df = pd.DataFrame([
-    {"Дата записи": row["recorded_at"],
-     "Дата этапа": pd.Timestamp(row["stage_date"]),
+    {"Дата записи": row["recorded_at"].date(),   # date в локальной зоне, без времени
+     "Дата этапа": row["stage_date"],
      "Статус": row["status"],
      "Причина отказа": row["reason"] or "",
      "Комментарий": row["note"] or ""}
     for row in card["history"]
 ])
-# recorded_at хранится с временем — обрезаем до дня, сохраняя тип datetime64
-history_df["Дата записи"] = pd.to_datetime(history_df["Дата записи"]).dt.normalize()
 
 
 def _highlight_history_row(row):
