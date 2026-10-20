@@ -6,6 +6,7 @@
 data/private/
 *.dump
 *.bak
+ico.ico
 
 # Python
 __pycache__/
