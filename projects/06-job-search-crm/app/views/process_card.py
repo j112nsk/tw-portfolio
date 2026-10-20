@@ -354,13 +354,15 @@ st.caption("Сверху — самые свежие записи (по дате
 history_kinds = [row["status_kind"] for row in card["history"]]
 
 history_df = pd.DataFrame([
-    {"Дата записи": fmt.format_date(row["recorded_at"]),
-     "Дата этапа": fmt.format_date(row["stage_date"]),
+    {"Дата записи": row["recorded_at"],
+     "Дата этапа": pd.Timestamp(row["stage_date"]),
      "Статус": row["status"],
      "Причина отказа": row["reason"] or "",
      "Комментарий": row["note"] or ""}
     for row in card["history"]
 ])
+# recorded_at хранится с временем — обрезаем до дня, сохраняя тип datetime64
+history_df["Дата записи"] = pd.to_datetime(history_df["Дата записи"]).dt.normalize()
 
 
 def _highlight_history_row(row):
@@ -370,7 +372,11 @@ def _highlight_history_row(row):
 
 
 st.dataframe(history_df.style.apply(_highlight_history_row, axis=1),
-             hide_index=True, width="stretch")
+             hide_index=True, width="stretch",
+             column_config={
+                 "Дата записи": st.column_config.DateColumn(format="DD.MM.YYYY"),
+                 "Дата этапа": st.column_config.DateColumn(format="DD.MM.YYYY"),
+             })
 
 # Выбор записи для правки/удаления. Клик по строке с цветной таблицей несовместим
 # (Streamlit: Styler + on_select), поэтому выбираем через selectbox.

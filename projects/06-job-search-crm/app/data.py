@@ -945,9 +945,15 @@ def delete_history_record(history_id: int,
                          {"id": history_id}, conn=conn)
         if row is None:
             raise ValueError(f"Запись истории id={history_id} не найдена.")
-        with conn.transaction():
-            conn.execute("delete from process_status_history where id = %(id)s",
-                         {"id": history_id})
+        try:
+            with conn.transaction():
+                conn.execute("delete from process_status_history where id = %(id)s",
+                             {"id": history_id})
+        except psycopg.errors.RestrictViolation as error:
+            raise ValueError(
+                "Нельзя удалить единственную запись истории процесса. "
+                "Если процесс заведён по ошибке, удалите его целиком."
+            ) from error
     finally:
         if own:
             conn.close()
