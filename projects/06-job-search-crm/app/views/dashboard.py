@@ -116,8 +116,7 @@ else:
     for col, row in zip(cols, funnel_rows):
         with col:
             st.markdown(f"**{_direction_label(row['scope'])}**")
-            st.caption(f"Процессов: {row['n_total']}{_small_n(row['n_total'])} · "
-                       f"только тестовое: {row['n_only_test']}")
+            st.caption(f"Процессов: {row['n_total']}{_small_n(row['n_total'])}")
 
             chart_df = pd.DataFrame({
                 "Этап": STAGE_NAMES,
