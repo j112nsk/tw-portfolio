@@ -137,27 +137,34 @@ flowchart TD
     StartA(["Соискатель ищет вакансии<br/>и откликается"]) --> Wait{"Назначено интервью<br/>или выдано тестовое?"}
     StartB(["Работодатель<br/>пишет первым"]) --> Dialog["Соискатель отвечает,<br/>уточняет вакансию"] --> Wait
 
-    Wait -->|"Да"| Create["Создать процесс в CRM<br/>(US-01)"]
+    Wait -->|"Да"| Create["Создать процесс<br/>(US-01)"]
     Wait -->|"Нет"| Skip(["Вне системы (D23)"])
 
-    Create --> Stage["Назначить этап с датой<br/>HR / Тестовое / Тех / …<br/>(US-04)"]
-    Stage --> Edit{"Нужно поправить<br/>запись истории?"}
-    Edit -->|"Да"| EditAct["Редактировать или удалить<br/>запись (US-05)"]
-    EditAct --> Stage
-    Edit -->|"Нет"| Close["Закрыть процесс итогом<br/>(US-06)"]
+    Open(["Открыть процесс<br/>из списка «Процессы»"])
+
+    Create --> Card["Карточка процесса:<br/>поля и история этапов"]
+    Open --> Card
+
+    Card --> Stage["Назначить этап с датой:<br/>HR / Тестовое / Тех / …<br/>(US-04)"]
+    Stage --> Next{"Процесс ещё идёт?"}
+    Next -->|"Да, будет следующий этап"| Stage
+    Next -->|"Нет, готов закрыть"| Close["Закрыть процесс итогом<br/>(US-06)"]
+
+    Card -.-> Edit["Редактировать или удалить<br/>запись истории (US-05)"]
+    Edit -.-> Card
 
     Close --> Outcome{{"Итог процесса"}}
     Outcome --> O1(["Оффер принят /<br/>отклонён мной"])
     Outcome --> O2(["Отказ работодателя /<br/>мой отказ"])
     Outcome --> O3(["Нет ответа"])
 
-    Stage -.-> Remind["Напоминания<br/>(US-08, US-09)"]
-    Stage -.-> Dash["Дашборд<br/>(US-12…US-18)"]
+    Card -.-> Remind["Напоминания<br/>(US-08, US-09)"]
+    Card -.-> Dash["Дашборд<br/>(US-12…US-18)"]
 
     classDef soft fill:#e3f2fd,stroke:#1565c0,color:#000
     classDef success fill:#e8f5e9,stroke:#2e7d32,color:#000
     classDef stop fill:#ffebee,stroke:#c62828,color:#000
-    class Create,Dialog,Stage,Edit,EditAct,Close,Remind,Dash soft
+    class Create,Dialog,Open,Card,Stage,Edit,Close,Remind,Dash soft
     class O1 success
     class O2,O3 stop
 ```
