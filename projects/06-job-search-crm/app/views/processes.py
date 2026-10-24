@@ -1,6 +1,7 @@
 """Страница «Процессы» (US-02, US-03): список процессов с фильтрами и поиском."""
 from datetime import date
 
+import pandas as pd
 import streamlit as st
 
 from app import data, formatting as fmt, ui
@@ -82,20 +83,39 @@ selected_id = None
 if not rows:
     st.info("Процессов нет.")
 else:
-    table = [{"Компания": r["company_name"], "Вакансия": r["vacancy_title"], "Ссылка": r["vacancy_url"],
-              "Направление": fmt.direction_label(r["direction_code"]), "Статус": r["status_name"],
-              "Ближайший этап": fmt.format_next_stage(r["next_date"], r["next_name"]),
-              "Последняя запись": r["last_record_date"],
-              "Длительность, дней": r["duration_days"],
-              "Инициатор": fmt.initiator_label(r["initiator"])}
-             for r in rows]
+    df = pd.DataFrame([
+        {"Компания": r["company_name"], "Вакансия": r["vacancy_title"],
+         "Направление": fmt.direction_label(r["direction_code"]), "Статус": r["status_name"],
+         "Ближайший этап": fmt.format_next_stage(r["next_date"], r["next_name"]),
+         "Последняя запись": fmt.format_date(r["last_record_date"]),
+         "Длительность, дней": r["duration_days"],
+         "Инициатор": fmt.initiator_label(r["initiator"])}
+        for r in rows
+    ])
+    row_kinds = [r["status_kind"] for r in rows]
+
+    def _highlight_process_row(row):
+        # Открытые процессы — мягкий зелёный, закрытые — мягкий красный.
+        # Полупрозрачность, чтобы в тёмной и светлой темах текст читался.
+        color = ("rgba(76, 175, 80, 0.22)" if row_kinds[row.name] == "stage"
+                 else "rgba(244, 67, 54, 0.22)")
+        return [f"background-color: {color}"] * len(row)
+
     event = st.dataframe(
-        table, key="processes_table", hide_index=True, width="stretch",
-        column_config={"Ссылка": st.column_config.LinkColumn(display_text="Открыть"),
-                       "Последняя запись": st.column_config.DateColumn(format="DD.MM.YYYY")},
+        df.style.apply(_highlight_process_row, axis=1),
+        key="processes_table", hide_index=True, width="stretch",
         on_select="rerun", selection_mode="single-row")
+
     chosen = event["selection"]["rows"]
     if chosen:
-        selected_id = rows[chosen[0]]["id"]
+        selected_row = rows[chosen[0]]
+        selected_id = selected_row["id"]
+        # Ссылка на вакансию — под таблицей, когда строка выбрана.
+        if selected_row["vacancy_url"]:
+            st.markdown(
+                f"**Ссылка на вакансию:** [{selected_row['vacancy_url']}]({selected_row['vacancy_url']})"
+            )
+        else:
+            st.caption("Ссылка на вакансию не указана.")
 
 ui.open_card_button(selected_id)
