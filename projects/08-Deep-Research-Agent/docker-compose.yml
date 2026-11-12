@@ -1,0 +1,33 @@
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - GENERIC_TIMEZONE=Europe/Moscow
+      - N8N_SECURE_COOKIE=false
+      - WEBHOOK_URL=https://sodium-mailing-editing-lovely.trycloudflare.com  # <-- Ваш URL
+    volumes:
+      - n8n_data:/home/node/.n8n
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # не обязательно на Windows, но безвредно
+    depends_on:
+      - searxng
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "8080:8080"
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    restart: unless-stopped
+
+volumes:
+  n8n_data:

@@ -1,0 +1,281 @@
+{
+  "name": "Deep Research — Researcher (test)",
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Выполни поиск по следующим темам: {{ $('Планировщик').first().json.text }}",
+        "options": {
+          "systemMessage": "Ты — профессиональный аналитик-исследователь. \n\nПРАВИЛА:\n1. Обязательно используй инструмент `searxng_search` для поиска информации.\n2. Сделай 2-3 поисковых запроса на разные формулировки.\n3. Твой финальный ответ должен быть СТРОГО НА РУССКОМ ЯЗЫКЕ.\n4. Формат твоего ответа — список найденных статей (Markdown):\n   **Название статьи** - [Ссылка](URL)\n   Краткое описание (1-2 предложения).\n5. НЕ ВЫДУМЫВАЙ ссылки. Бери их только из результатов поиска.\n6. Если результатов нет, напиши \"Ничего не найдено\".\n7. Если пользователь просит сравнить два объекта (например, два смартфона), ты ОБЯЗАН сделать минимум 4 поисковых запроса: \n2 запроса для первого объекта (например, \"Realme 14 Pro+ характеристики\", \"Realme 14 Pro+ обзор\") и 2 запроса для второго. \nТолько после этого собирай итоговый ответ."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        784,
+        0
+      ],
+      "id": "da519c3c-9b34-4af5-a34d-c70a0f13ecde",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "qwen2.5:7b",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        784,
+        176
+      ],
+      "id": "57dbc970-38d6-468f-93b5-a687f5f7ecd5",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "tLMMLmkZUSmbvJbZ",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "Search the web. Returns a JSON array of results with title, url, and snippet.",
+        "jsCode": "// В structured mode query — это объект, из которого мы берём строку запроса\nconst searchQuery = query.query; \nconst url = 'http://searxng:8080/search?q=' + encodeURIComponent(searchQuery) + '&format=json';\n\ntry {\n  const data = await this.helpers.httpRequest({\n    method: 'GET',\n    url: url,\n    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; n8n-bot/1.0)' },\n    json: true\n  });\n\n  if (!data.results || data.results.length === 0) {\n    return `По запросу \"${searchQuery}\" ничего не найдено.`;\n  }\n\n  const cleanResults = data.results.slice(0, 7).map(item => ({\n    title: item.title || 'Без названия',\n    url: item.url || '',\n    snippet: item.content ? item.content.substring(0, 400) + '...' : 'Нет описания'\n  }));\n\n  return JSON.stringify(cleanResults);\n} catch (error) {\n  return \"Ошибка поиска: \" + error.message;\n}",
+        "specifyInputSchema": true,
+        "jsonSchemaExample": "{\n  \"query\": \"Видеокарта RTX 4060 отзывы последние 30 дней 2024\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        976,
+        176
+      ],
+      "id": "e032ed05-b1dd-4b5f-ab8e-52975362779a",
+      "name": "searxng_search"
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        336,
+        0
+      ],
+      "id": "db09addb-e88b-40f0-8106-ef283da2686f",
+      "name": "Telegram Trigger",
+      "webhookId": "0eafe1ef-7f82-4990-9811-dd3b90fba815",
+      "credentials": {
+        "telegramApi": {
+          "id": "2O0aD9xtFd60DMJT",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1360,
+        0
+      ],
+      "id": "ee8e764b-e82c-48e7-90d7-bf80385b1322",
+      "name": "Send a text message",
+      "webhookId": "7d765e1b-1210-493e-ab0d-5d4760a2101b",
+      "credentials": {
+        "telegramApi": {
+          "id": "2O0aD9xtFd60DMJT",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "deepseek-r1:8b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        560,
+        176
+      ],
+      "id": "3369582a-c425-4313-9a6d-c12739b070d2",
+      "name": "Ollama Chat Model1",
+      "credentials": {
+        "ollamaApi": {
+          "id": "tLMMLmkZUSmbvJbZ",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "deepseek-r1:8b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        1136,
+        176
+      ],
+      "id": "7f7a04be-4563-4d52-993d-48f5b3040d1c",
+      "name": "Ollama Chat Model2",
+      "credentials": {
+        "ollamaApi": {
+          "id": "tLMMLmkZUSmbvJbZ",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ты — опытный аналитик-исследователь. Твоя задача — разбить запрос пользователя на 3-4 конкретных поисковых запроса.\nВАЖНО: Сегодняшняя дата — {{ $now.format('dd.MM.yyyy') }}. Если пользователь просит информацию \"за последний месяц\" или \"за неделю\", обязательно используй текущий год ({{ $now.format('yyyy') }}) в поисковых запросах.\nЕсли пользователь просит минусы, обязательно добавь в запросы слова: \"проблемы\", \"недостатки\", \"баги\", \"жалобы\".\nВерни ТОЛЬКО список запросов, каждый с новой строки, без нумерации и вводных слов.\n\nЗапрос пользователя: {{ $('Telegram Trigger').first().json.message.text }}",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        496,
+        0
+      ],
+      "id": "634faefb-66b4-4dbb-9559-35fb44824f0f",
+      "name": "Планировщик"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ты — профессиональный аналитик-эксперт. Ниже представлены исходный запрос и результаты поиска.\nТвоя задача — провести СРАВНИТЕЛЬНЫЙ анализ на основе этих данных.\n\nПРАВИЛА:\n1. Если данные есть по обоим объектам, сравни их по 3-4 параметрам (что лучше, что хуже).\n2. Если данные есть ТОЛЬКО по одному объекту, напиши его характеристики и прямо укажи: \"Данные по [Второй объект] в результатах поиска отсутствуют\".\n3. НИКОГДА не заменяй запрошенные модели другими (например, не пиши про GT8 Pro, если просили 14 Pro+).\n4. Опирайся ТОЛЬКО на текст.\n5. Обязательно сделай короткий ВЫВОД в конце.\n6. Ссылки на источники оставляй в формате [Название](URL).\n\nИСХОДНЫЙ ВОПРОС:\n{{ $('Telegram Trigger').first().json.message.text }}\n\nРЕЗУЛЬТАТЫ ПОИСКА:\n{{ $('AI Agent').first().json.output }}",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1072,
+        0
+      ],
+      "id": "bc850eb8-d071-4be4-a223-58b70144dcfc",
+      "name": "Критик"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "searxng_search": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Критик",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Планировщик",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Планировщик",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Критик",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Планировщик": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Критик": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "f6f6c0e3-c065-4a45-a1ad-32b898360ebf",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8828df9a26007586bf677be0b4c15d04a8345a68728c86397aa1d4fe4015febc"
+  },
+  "nodeGroups": [],
+  "id": "hYCF1gssHXuNte0I",
+  "tags": []
+}
