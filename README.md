@@ -13,6 +13,7 @@
 | [**5. Программа подписания XML-отчетов ПФР с использованием КЭП (ТЗ)**](projects/05-electronic-signature-system/Техническое%20задание%20-%20esigPFR.MD) | Реальный рабочий кейс |
 | [**6. Job Search CRM**](projects/06-job-search-crm) | Pet-проект (MVP выпущен) |
 | [**7. MeteoHub**](projects/07-MeteoHub) | Pet-проект (MVP выпущен) |
+| [**8. Deep Research Agent**](projects/08-Deep-Research-Agent/) | Pet-проект (MVP выпущен) |
 | [**Другие рабочие кейсы**](projects/additional)                                                                                                      |  |
 
 | **Technical Writing:**                                               |
@@ -33,11 +34,12 @@
 
 ## Навыки и компетенции
 
-- Системный анализ: требования, AS-IS / TO-BE, BPMN, UML, User Story, Use Case, бизнес-правила, Acceptance Criteria
-- Интеграции: REST API, OpenAPI, XML, JSON, SQL, анализ взаимодействия систем и данных
-- Техническая документация: ТЗ, спецификации, API-документация, пользовательские и административные инструкции, базы знаний
-- Инструменты: Jira, Confluence, Draw.io, Figma, Postman, Swagger, VS Code, Git, Markdown
-- Подходы: Docs-as-Code, Agile, работа с требованиями и документацией на протяжении жизненного цикла проекта
+- **Системный анализ:** требования, AS-IS / TO-BE, BPMN, UML, User Story, Use Case, бизнес-правила, Acceptance Criteria
+- **Интеграции:** REST API, OpenAPI, XML, JSON, SQL, анализ взаимодействия систем и данных
+- **Техническая документация:** ТЗ, спецификации, API-документация, пользовательские и административные инструкции, базы знаний
+- **Инструменты:** Jira, Confluence, Draw.io, Figma, Postman, Swagger, VS Code, Git, Markdown
+- **Подходы:** Docs-as-Code, Agile, работа с требованиями и документацией на протяжении жизненного цикла проекта
+- **AI & Автоматизация:** Проектирование AI-агентов (Agentic Workflows), n8n, Ollama (deepseek-r1, qwen2.5), Prompt Engineering, управление контекстом и галлюцинациями LLM.
 
 ## Контакты
 - ТГ: https://t.me/j112nsk
@@ -45,6 +47,7 @@
 
 Открыт к предложениям на позиции:
 - Системный/бизнес аналитик
+- Аналитик AI-решений/интеграций
 - Технический писатель
 
 Формат: удалённо
