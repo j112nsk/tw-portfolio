@@ -6,39 +6,17 @@
         "promptType": "define",
         "text": "=Выполни поиск по следующим темам: {{ $('Планировщик').first().json.text }}",
         "options": {
-          "systemMessage": "Ты — профессиональный аналитик-исследователь. \n\nПРАВИЛА:\n1. Обязательно используй инструмент `searxng_search` для поиска информации.\n2. Сделай 2-3 поисковых запроса на разные формулировки.\n3. Твой финальный ответ должен быть СТРОГО НА РУССКОМ ЯЗЫКЕ.\n4. Формат твоего ответа — список найденных статей (Markdown):\n   **Название статьи** - [Ссылка](URL)\n   Краткое описание (1-2 предложения).\n5. НЕ ВЫДУМЫВАЙ ссылки. Бери их только из результатов поиска.\n6. Если результатов нет, напиши \"Ничего не найдено\".\n7. Если пользователь просит сравнить два объекта (например, два смартфона), ты ОБЯЗАН сделать минимум 4 поисковых запроса: \n2 запроса для первого объекта (например, \"Realme 14 Pro+ характеристики\", \"Realme 14 Pro+ обзор\") и 2 запроса для второго. \nТолько после этого собирай итоговый ответ."
+          "systemMessage": "Ты — профессиональный исследователь. Твоя задача — найти информацию с помощью инструмента searxng_search.\n1. Обязательно используй инструмент.\n2. Сделай 2-3 поисковых запроса (на английском, если тема техническая).\n3. Твой ответ должен содержать только факты, ссылки и выдержки из поиска.\n4. Если запрос просит найти ссылки на статьи или ресурсы — выдай их списком."
         }
       },
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        784,
-        0
+        1184,
+        -176
       ],
       "id": "da519c3c-9b34-4af5-a34d-c70a0f13ecde",
       "name": "AI Agent"
-    },
-    {
-      "parameters": {
-        "model": "qwen2.5:7b",
-        "options": {
-          "temperature": 0.2
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
-      "typeVersion": 1,
-      "position": [
-        784,
-        176
-      ],
-      "id": "57dbc970-38d6-468f-93b5-a687f5f7ecd5",
-      "name": "Ollama Chat Model",
-      "credentials": {
-        "ollamaApi": {
-          "id": "tLMMLmkZUSmbvJbZ",
-          "name": "Ollama account"
-        }
-      }
     },
     {
       "parameters": {
@@ -50,23 +28,21 @@
       "type": "@n8n/n8n-nodes-langchain.toolCode",
       "typeVersion": 1.3,
       "position": [
-        976,
-        176
+        1392,
+        0
       ],
       "id": "e032ed05-b1dd-4b5f-ab8e-52975362779a",
       "name": "searxng_search"
     },
     {
       "parameters": {
-        "updates": [
-          "message"
-        ],
+        "updates": "={{ [\"message\"] }}",
         "additionalFields": {}
       },
       "type": "n8n-nodes-base.telegramTrigger",
       "typeVersion": 1.5,
       "position": [
-        336,
+        96,
         0
       ],
       "id": "db09addb-e88b-40f0-8106-ef283da2686f",
@@ -82,16 +58,17 @@
     {
       "parameters": {
         "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
-        "text": "={{ $json.text }}",
+        "text": "={{ $json.output || $json.text }}",
         "additionalFields": {
+          "appendAttribution": false,
           "parse_mode": "HTML"
         }
       },
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        1360,
-        0
+        1760,
+        96
       ],
       "id": "ee8e764b-e82c-48e7-90d7-bf80385b1322",
       "name": "Send a text message",
@@ -105,55 +82,15 @@
     },
     {
       "parameters": {
-        "model": "deepseek-r1:8b",
-        "options": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
-      "typeVersion": 1,
-      "position": [
-        560,
-        176
-      ],
-      "id": "3369582a-c425-4313-9a6d-c12739b070d2",
-      "name": "Ollama Chat Model1",
-      "credentials": {
-        "ollamaApi": {
-          "id": "tLMMLmkZUSmbvJbZ",
-          "name": "Ollama account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "model": "deepseek-r1:8b",
-        "options": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
-      "typeVersion": 1,
-      "position": [
-        1136,
-        176
-      ],
-      "id": "7f7a04be-4563-4d52-993d-48f5b3040d1c",
-      "name": "Ollama Chat Model2",
-      "credentials": {
-        "ollamaApi": {
-          "id": "tLMMLmkZUSmbvJbZ",
-          "name": "Ollama account"
-        }
-      }
-    },
-    {
-      "parameters": {
         "promptType": "define",
-        "text": "=Ты — опытный аналитик-исследователь. Твоя задача — разбить запрос пользователя на 3-4 конкретных поисковых запроса.\nВАЖНО: Сегодняшняя дата — {{ $now.format('dd.MM.yyyy') }}. Если пользователь просит информацию \"за последний месяц\" или \"за неделю\", обязательно используй текущий год ({{ $now.format('yyyy') }}) в поисковых запросах.\nЕсли пользователь просит минусы, обязательно добавь в запросы слова: \"проблемы\", \"недостатки\", \"баги\", \"жалобы\".\nВерни ТОЛЬКО список запросов, каждый с новой строки, без нумерации и вводных слов.\n\nЗапрос пользователя: {{ $('Telegram Trigger').first().json.message.text }}",
+        "text": "=Ты — опытный аналитик-исследователь. Твоя задача — декомпозировать запрос пользователя на 3-4 поисковых запроса.\nВАЖНО: Сегодняшняя дата — {{ $now.format('dd.MM.yyyy') }}.\nЕсли запрос требует актуальности, используй текущий год ({{ $now.format('yyyy') }}).\nЕсли пользователь ищет жалобы или минусы — добавь слова \"проблемы\", \"баги\", \"недостатки\".\nЕсли ищешь сравнение — сделай отдельные запросы для каждого объекта.\nВерни ТОЛЬКО список запросов, каждый с новой строки, без нумерации и вводных слов.\n\nЗапрос пользователя: {{ $('Telegram Trigger').first().json.message.text }}",
         "batching": {}
       },
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.9,
       "position": [
-        496,
-        0
+        880,
+        -176
       ],
       "id": "634faefb-66b4-4dbb-9559-35fb44824f0f",
       "name": "Планировщик"
@@ -161,32 +98,267 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Ты — профессиональный аналитик-эксперт. Ниже представлены исходный запрос и результаты поиска.\nТвоя задача — провести СРАВНИТЕЛЬНЫЙ анализ на основе этих данных.\n\nПРАВИЛА:\n1. Если данные есть по обоим объектам, сравни их по 3-4 параметрам (что лучше, что хуже).\n2. Если данные есть ТОЛЬКО по одному объекту, напиши его характеристики и прямо укажи: \"Данные по [Второй объект] в результатах поиска отсутствуют\".\n3. НИКОГДА не заменяй запрошенные модели другими (например, не пиши про GT8 Pro, если просили 14 Pro+).\n4. Опирайся ТОЛЬКО на текст.\n5. Обязательно сделай короткий ВЫВОД в конце.\n6. Ссылки на источники оставляй в формате [Название](URL).\n\nИСХОДНЫЙ ВОПРОС:\n{{ $('Telegram Trigger').first().json.message.text }}\n\nРЕЗУЛЬТАТЫ ПОИСКА:\n{{ $('AI Agent').first().json.output }}",
+        "text": "=Ты — профессиональный аналитик. Твоя задача — на основе результатов поиска дать структурированный ответ на исходный вопрос.\n\nПРАВИЛА:\n1. Если просили сравнить — сравни по параметрам (что лучше/хуже).\n2. Если просили найти новости/жалобы — выдели главные тезисы.\n3. Если просили найти ссылки — оформи их списком в Markdown: [Название](URL).\n4. Если данных нет — напиши \"Информации не найдено\", но не выдумывай.\n5. Обязательно сделай краткий вывод.\n6. Отвечай строго на русском языке.\n\nИСХОДНЫЙ ВОПРОС:\n{{ $('Telegram Trigger').first().json.message.text }}\n\nРЕЗУЛЬТАТЫ ПОИСКА:\n{{ $('AI Agent').first().json.output }}",
         "batching": {}
       },
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.9,
       "position": [
-        1072,
-        0
+        1456,
+        -176
       ],
       "id": "bc850eb8-d071-4be4-a223-58b70144dcfc",
       "name": "Критик"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ты — классификатор запросов. Твоя задача — определить, нужен ли для ответа поиск в интернете.\nОтвечай ОДНИМ словом без знаков препинания:\n- RESEARCH — если запрос требует свежих новостей, фактов, сравнения товаров, поиска ссылок или конкретных статей.\n- DIRECT — если это общий вопрос, написание кода, перевод, творческая задача или факт из твоих базовых знаний.\n\nЗапрос: {{ $('Telegram Trigger').first().json.message.text }}",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        400,
+        0
+      ],
+      "id": "c3ec3059-b1d8-4a22-8a98-b6970fd39475",
+      "name": "Router"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.text }}",
+                    "rightValue": "=RESEARCH",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    },
+                    "id": "8b56fba0-bd28-4bdd-8e1d-bb062c57c2c3"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "087af3b1-2ed3-435c-920d-80406e1c590f",
+                    "leftValue": "={{ $json.text }}",
+                    "rightValue": "DIRECT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        672,
+        0
+      ],
+      "id": "02cf70a8-ef5b-4ee8-a6b6-7bc3c4b2fa10",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "contextWindowLength": 20
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        1248,
+        0
+      ],
+      "id": "8cd77982-186e-4f81-95a3-1a8e08143b68",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "model": "qwen2.5:7b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        448,
+        160
+      ],
+      "id": "8a2027ed-2639-4666-9f35-23fc1702310f",
+      "name": "qwen",
+      "credentials": {
+        "ollamaApi": {
+          "id": "tLMMLmkZUSmbvJbZ",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "qwen2.5:7b",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        1136,
+        0
+      ],
+      "id": "57dbc970-38d6-468f-93b5-a687f5f7ecd5",
+      "name": "qwen1",
+      "credentials": {
+        "ollamaApi": {
+          "id": "tLMMLmkZUSmbvJbZ",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "deepseek-r1:8b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        960,
+        0
+      ],
+      "id": "3369582a-c425-4313-9a6d-c12739b070d2",
+      "name": "deepseek",
+      "credentials": {
+        "ollamaApi": {
+          "id": "tLMMLmkZUSmbvJbZ",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "deepseek-r1:8b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        1552,
+        0
+      ],
+      "id": "7f7a04be-4563-4d52-993d-48f5b3040d1c",
+      "name": "deepseek1",
+      "credentials": {
+        "ollamaApi": {
+          "id": "tLMMLmkZUSmbvJbZ",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "deepseek-r1:8b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        1088,
+        336
+      ],
+      "id": "b514ec65-30fc-42d0-aba3-74768ba3a1c5",
+      "name": "deepseek2",
+      "credentials": {
+        "ollamaApi": {
+          "id": "tLMMLmkZUSmbvJbZ",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Telegram Trigger').first().json.message.text }}",
+        "options": {
+          "systemMessage": "Ты — полезный ассистент. Ответь на запрос пользователя на русском языке.\nЕсли просят код — напиши код в Markdown-блоке. Если просят текст — напиши его. Не используй поиск."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1120,
+        160
+      ],
+      "id": "366a30f5-34e3-495a-b056-88adfed61157",
+      "name": "Direct LLM"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "contextWindowLength": 20
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        1232,
+        336
+      ],
+      "id": "4997a583-bf05-4ff3-8a97-3a8158fd1c2e",
+      "name": "Simple Memory1"
+    },
+    {
+      "parameters": {
+        "operation": "sendChatAction",
+        "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}"
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        256,
+        0
+      ],
+      "id": "a1b59670-e814-4ebf-87ad-2484a14c07bc",
+      "name": "Send a chat action",
+      "webhookId": "df29141a-6e2d-4c23-bf8d-2da52c94ba86",
+      "credentials": {
+        "telegramApi": {
+          "id": "2O0aD9xtFd60DMJT",
+          "name": "Telegram account"
+        }
+      }
     }
   ],
   "pinData": {},
   "connections": {
-    "Ollama Chat Model": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "searxng_search": {
       "ai_tool": [
         [
@@ -213,30 +385,8 @@
       "main": [
         [
           {
-            "node": "Планировщик",
+            "node": "Send a chat action",
             "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Ollama Chat Model1": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Планировщик",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Ollama Chat Model2": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Критик",
-            "type": "ai_languageModel",
             "index": 0
           }
         ]
@@ -263,14 +413,142 @@
           }
         ]
       ]
+    },
+    "Router": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Планировщик",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Direct LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "qwen": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Router",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "qwen1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "deepseek": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Планировщик",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "deepseek1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Критик",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "deepseek2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Direct LLM",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Direct LLM": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory1": {
+      "ai_memory": [
+        [
+          {
+            "node": "Direct LLM",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a chat action": {
+      "main": [
+        [
+          {
+            "node": "Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "f6f6c0e3-c065-4a45-a1ad-32b898360ebf",
+  "versionId": "bf8c00ed-093c-4459-8a47-45426c90f051",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "8828df9a26007586bf677be0b4c15d04a8345a68728c86397aa1d4fe4015febc"

@@ -10,7 +10,7 @@ services:
       - N8N_PROTOCOL=http
       - GENERIC_TIMEZONE=Europe/Moscow
       - N8N_SECURE_COOKIE=false
-      - WEBHOOK_URL=https://sodium-mailing-editing-lovely.trycloudflare.com  # <-- Ваш URL
+      - WEBHOOK_URL=https://evaluations-managers-aware-griffin.trycloudflare.com  # <-- Ваш URL из Cloudflare
     volumes:
       - n8n_data:/home/node/.n8n
     extra_hosts:
